@@ -53,15 +53,62 @@ export default function App() {
   );
 }
 
-// --- VIEW: HISTORY (With Delete) ---
+// --- VIEW: CREATE NEW EVENT ---
+function CreateEventView({ setView, loadEvent }) {
+  const [name, setName] = useState('');
+  const [pastedNames, setPastedNames] = useState('');
+  const [rounds, setRounds] = useState(3);
+
+  const handleCreate = async () => {
+    const playerList = pastedNames.split('\n')
+      .map(n => n.trim()).filter(n => n !== "")
+      .map(name => ({ name, score: 0, wins: 0, id: Math.random().toString(36).substr(2, 9) }));
+
+    const shuffled = [...playerList].sort(() => Math.random() - 0.5);
+    
+    const initialMatches = [];
+    for (let i = 0; i < shuffled.length; i += 3) {
+      initialMatches.push({
+        id: i,
+        members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 }))
+      });
+    }
+
+    const { data, error } = await supabase.from('events').insert([{
+      name: name,
+      players: shuffled,
+      matches: initialMatches,
+      current_round: 1,
+      max_rounds: parseInt(rounds),
+      status: 'active'
+    }]).select();
+
+    if (!error && data) loadEvent(data[0]);
+    else console.error("Create Error:", error);
+  };
+
+  return (
+    <div>
+      <button onClick={() => setView('MAIN')} style={{ marginBottom: '20px' }}>← Back</button>
+      <h2>Create New Event</h2>
+      <input placeholder="Event Name (e.g. Town League #1)" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+      <div style={{ marginBottom: '15px' }}>
+        <label>Number of Rounds: </label>
+        <input type="number" value={rounds} onChange={e => setRounds(e.target.value)} style={{ width: '60px', padding: '5px' }} />
+      </div>
+      <textarea placeholder="Paste names (one per line)" value={pastedNames} onChange={e => setPastedNames(e.target.value)} rows={10} style={inputStyle} />
+      <button onClick={handleCreate} style={btnStyle}>Generate Round 1</button>
+    </div>
+  );
+}
+
+// --- VIEW: HISTORY ---
 function HistoryView({ events, setEvents, setView, loadEvent }) {
   const handleDelete = async (eventId) => {
-    if (window.confirm("Are you sure you want to delete this event forever?")) {
+    if (window.confirm("Are you sure you want to delete this event?")) {
       const { error } = await supabase.from('events').delete().eq('event_id', eventId);
       if (!error) {
         setEvents(events.filter(e => e.event_id !== eventId));
-      } else {
-        alert("Delete failed: " + error.message);
       }
     }
   };
@@ -70,15 +117,16 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
     <div>
       <button onClick={() => setView('MAIN')} style={{ marginBottom: '20px' }}>← Back</button>
       <h2>Event History</h2>
+      {events.length === 0 && <p>No events found.</p>}
       {events.map(e => (
         <div key={e.event_id} style={historyBox}>
           <div>
             <strong>{e.name}</strong> <br/>
             <small>{new Date(e.created_at).toLocaleDateString()}</small>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => loadEvent(e)} style={{ background: '#2563eb', color: 'white', border: 'none', padding: '5px 15px', borderRadius: '4px' }}>Open</button>
-            <button onClick={() => handleDelete(e.event_id)} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '5px 15px', borderRadius: '4px' }}>Delete</button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => loadEvent(e)} style={{ ...smallBtn, background: '#2563eb' }}>Open</button>
+            <button onClick={() => handleDelete(e.event_id)} style={{ ...smallBtn, background: '#ef4444' }}>Delete</button>
           </div>
         </div>
       ))}
@@ -86,7 +134,7 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
   );
 }
 
-// --- VIEW: ACTIVE TOURNAMENT (With Standings) ---
+// --- VIEW: ACTIVE TOURNAMENT ---
 function ActiveTournament({ event, onBack }) {
   const [localEvent, setLocalEvent] = useState(event);
   const [showStandings, setShowStandings] = useState(false);
@@ -124,7 +172,7 @@ function ActiveTournament({ event, onBack }) {
       return;
     }
 
-    const sorted = [...updatedPlayers].sort((a,b) => b.score - a.score);
+    const sorted = [...updatedPlayers].sort((a,b) => b.score - a.score || b.wins - a.wins);
     const nextMatches = [];
     for (let i = 0; i < sorted.length; i += 3) {
       nextMatches.push({ id: i, members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
@@ -143,37 +191,37 @@ function ActiveTournament({ event, onBack }) {
         <h2>{localEvent.name}</h2>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={() => setShowStandings(!showStandings)} style={utilBtn}>
-            {showStandings ? "View Matches" : "View Standings"}
+            {showStandings ? "Matches" : "Standings"}
           </button>
           <button onClick={onBack} style={utilBtn}>Menu</button>
         </div>
       </div>
 
       {showStandings || localEvent.status === 'finished' ? (
-        <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-          <h3>{localEvent.status === 'finished' ? "🏆 Final Standings" : "📊 Current Standings"}</h3>
-          <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+        <div style={standingBox}>
+          <h3>{localEvent.status === 'finished' ? "🏆 Final Standings" : "📊 Live Standings"}</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #ddd' }}>
-                <th>Rank</th>
-                <th>Name</th>
-                <th>Score</th>
+                <th style={{ textAlign: 'left' }}>#</th>
+                <th style={{ textAlign: 'left' }}>Name</th>
+                <th>Pts</th>
                 <th>Wins</th>
               </tr>
             </thead>
             <tbody>
               {sortedPlayers.map((p, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #eee', height: '35px' }}>
+                <tr key={i} style={{ borderBottom: '1px solid #eee', height: '40px' }}>
                   <td>{i + 1}</td>
                   <td>{p.name}</td>
-                  <td>{p.score}</td>
-                  <td>{p.wins}</td>
+                  <td style={{ textAlign: 'center' }}>{p.score}</td>
+                  <td style={{ textAlign: 'center' }}>{p.wins}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {localEvent.status === 'finished' && (
-            <button onClick={() => downloadTxt(localEvent)} style={{ ...btnStyle, marginTop: '20px' }}>Download .txt Results</button>
+            <button onClick={() => downloadTxt(localEvent)} style={{ ...btnStyle, marginTop: '20px' }}>Download Results</button>
           )}
         </div>
       ) : (
@@ -181,22 +229,17 @@ function ActiveTournament({ event, onBack }) {
           <h3>Round {localEvent.current_round} / {localEvent.max_rounds}</h3>
           {localEvent.matches.map((m, mIdx) => (
             <div key={mIdx} style={matchBox}>
-              <div style={{ marginBottom: '10px', fontWeight: 'bold', color: '#64748b' }}>MATCH {mIdx + 1}</div>
+              <div style={{ fontWeight: 'bold', color: '#64748b', fontSize: '0.8rem' }}>MATCH {mIdx + 1}</div>
               {m.members.map((p, pIdx) => (
-                <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '8px 0' }}>
-                  <span style={{ fontSize: '1.1rem' }}>{p.name}</span>
-                  <input 
-                    type="number" 
-                    value={p.currentRoundScore} 
-                    onChange={e => updateScore(mIdx, pIdx, e.target.value)} 
-                    style={{ width: '70px', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }} 
-                  />
+                <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between', margin: '10px 0' }}>
+                  <span>{p.name}</span>
+                  <input type="number" value={p.currentRoundScore} onChange={e => updateScore(mIdx, pIdx, e.target.value)} style={{ width: '60px', padding: '5px' }} />
                 </div>
               ))}
             </div>
           ))}
           <button onClick={nextRound} style={btnStyle}>
-            {localEvent.current_round === localEvent.max_rounds ? "Finish Tournament" : "Submit & Next Round"}
+            {localEvent.current_round === localEvent.max_rounds ? "Finish Event" : "Submit Round"}
           </button>
         </div>
       )}
@@ -204,11 +247,20 @@ function ActiveTournament({ event, onBack }) {
   );
 }
 
-// --- REMAINING HELPER COMPONENTS (CreateEventView, Styles, etc. remain as previously provided) ---
-// ... (Include CreateEventView from previous step)
+// --- HELPERS ---
+const downloadTxt = (e) => {
+  const content = `Event: ${e.name}\n` + e.players.sort((a,b) => b.score - a.score).map(p => `${p.name}: ${p.score}pts`).join('\n');
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = `${e.name}.txt`; link.click();
+};
 
+// --- STYLES ---
+const btnStyle = { padding: '15px', cursor: 'pointer', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', width: '100%', fontWeight: 'bold' };
+const inputStyle = { padding: '12px', width: '100%', marginBottom: '10px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #ccc' };
+const matchBox = { border: '1px solid #e2e8f0', padding: '15px', borderRadius: '10px', marginBottom: '12px', background: '#fff' };
+const historyBox = { border: '1px solid #e2e8f0', padding: '12px', marginBottom: '10px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const utilBtn = { padding: '8px 12px', cursor: 'pointer', background: '#64748b', color: 'white', border: 'none', borderRadius: '4px' };
-const btnStyle = { padding: '15px', cursor: 'pointer', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', width: '100%', fontSize: '1rem', fontWeight: 'bold' };
-const matchBox = { border: '1px solid #e2e8f0', padding: '15px', borderRadius: '10px', marginBottom: '15px', background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' };
-const historyBox = { border: '1px solid #e2e8f0', padding: '15px', marginBottom: '10px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' };
-const inputStyle = { padding: '12px', width: '100%', marginBottom: '15px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #cbd5e1' };
+const smallBtn = { color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' };
+const standingBox = { background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' };
