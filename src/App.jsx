@@ -132,8 +132,12 @@ function ActiveTournament({ event, onBack }) {
         table: 'events', 
         filter: `event_id=eq.${localEvent.event_id}` 
       }, 
-      (payload) => setLocalEvent(payload.new))
+      (payload) => {
+        console.log("Realtime update received!", payload.new);
+        setLocalEvent(payload.new);
+      })
       .subscribe();
+      
     return () => supabase.removeChannel(channel);
   }, [localEvent.event_id]);
 
