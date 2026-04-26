@@ -24,7 +24,7 @@ export default function App() {
     <div style={{ padding: '20px', maxWidth: '800px', margin: 'auto', fontFamily: 'system-ui' }}>
       {view === 'MAIN' && (
         <div style={{ textAlign: 'center', marginTop: '50px' }}>
-          <h1>🏆 BeyDen Swiss Manager</h1>
+          <h1>🏆 Wide Stadium Swiss by BeyDen 🏆</h1>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             <button onClick={() => setView('CREATE')} style={btnStyle}>➕ Create New Event</button>
             <button onClick={fetchEvents} style={btnStyle}>📋 View Stored Events</button>
@@ -54,16 +54,35 @@ export default function App() {
 }
 
 // --- VIEW: CREATE NEW EVENT ---
+// --- VIEW: CREATE NEW EVENT (With Imposter Logic) ---
 function CreateEventView({ setView, loadEvent }) {
   const [name, setName] = useState('');
   const [pastedNames, setPastedNames] = useState('');
   const [rounds, setRounds] = useState(3);
 
   const handleCreate = async () => {
-    const playerList = pastedNames.split('\n')
+    // 1. Clean the initial list
+    let playerList = pastedNames.split('\n')
       .map(n => n.trim()).filter(n => n !== "")
       .map(name => ({ name, score: 0, wins: 0, id: Math.random().toString(36).substr(2, 9) }));
 
+    if (playerList.length === 0) return alert("Please add at least one player.");
+
+    // 2. Imposter Logic: Fill gaps to make the total divisible by 3
+    const remainder = playerList.length % 3;
+    if (remainder !== 0) {
+      const fillNeeded = 3 - remainder;
+      for (let i = 1; i <= fillNeeded; i++) {
+        playerList.push({ 
+          name: i === 1 ? "Imposter" : "Imposter2", 
+          score: 0, 
+          wins: 0, 
+          id: `imposter-${i}-${Math.random()}` 
+        });
+      }
+    }
+
+    // 3. Shuffle and Pair
     const shuffled = [...playerList].sort(() => Math.random() - 0.5);
     
     const initialMatches = [];
@@ -91,7 +110,7 @@ function CreateEventView({ setView, loadEvent }) {
     <div>
       <button onClick={() => setView('MAIN')} style={{ marginBottom: '20px' }}>← Back</button>
       <h2>Create New Event</h2>
-      <input placeholder="Event Name (e.g. Town League #1)" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+      <input placeholder="Event Name" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
       <div style={{ marginBottom: '15px' }}>
         <label>Number of Rounds: </label>
         <input type="number" value={rounds} onChange={e => setRounds(e.target.value)} style={{ width: '60px', padding: '5px' }} />
