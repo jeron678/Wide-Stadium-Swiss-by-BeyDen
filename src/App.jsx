@@ -66,7 +66,6 @@ function CreateEventView({ setView, loadEvent }) {
 
     const shuffled = [...playerList].sort(() => Math.random() - 0.5);
     
-    // Initial 1v1v1 Pairing
     const initialMatches = [];
     for (let i = 0; i < shuffled.length; i += 3) {
       initialMatches.push({
@@ -75,6 +74,7 @@ function CreateEventView({ setView, loadEvent }) {
       });
     }
 
+    // UPDATED: Supabase will generate the event_id automatically
     const { data, error } = await supabase.from('events').insert([{
       name: name,
       players: shuffled,
@@ -84,29 +84,30 @@ function CreateEventView({ setView, loadEvent }) {
       status: 'active'
     }]).select();
 
-    if (!error) loadEvent(data[0]);
+    if (!error && data) loadEvent(data[0]);
+    else console.error("Create Error:", error);
   };
 
   return (
     <div>
       <button onClick={() => setView('MAIN')}>← Back</button>
       <h2>Create New Event</h2>
-      <input placeholder="Event Name (e.g. BeyDen April)" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+      <input placeholder="Event Name" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
       <input type="number" value={rounds} onChange={e => setRounds(e.target.value)} style={inputStyle} />
-      <textarea placeholder="Paste names (one per line)" value={pastedNames} onChange={e => setPastedNames(e.target.value)} rows={10} style={inputStyle} />
+      <textarea placeholder="Names (one per line)" value={pastedNames} onChange={e => setPastedNames(e.target.value)} rows={10} style={inputStyle} />
       <button onClick={handleCreate} style={btnStyle}>Generate Round 1</button>
     </div>
   );
 }
 
-// --- VIEW: HISTORY / STORED EVENTS ---
+// --- VIEW: HISTORY ---
 function HistoryView({ events, setView, loadEvent }) {
   return (
     <div>
       <button onClick={() => setView('MAIN')}>← Back</button>
       <h2>Event History</h2>
       {events.map(e => (
-        <div key={e.id} style={{ border: '1px solid #ccc', padding: '10px', marginBottom: '10px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
+        <div key={e.event_id} style={historyBox}>
           <div>
             <strong>{e.name}</strong> <br/>
             <small>{new Date(e.created_at).toLocaleDateString()}</small>
@@ -118,56 +119,67 @@ function HistoryView({ events, setView, loadEvent }) {
   );
 }
 
-// --- VIEW: ACTIVE TOURNAMENT (THE ENGINE) ---
+// --- VIEW: ACTIVE TOURNAMENT ---
 function ActiveTournament({ event, onBack }) {
   const [localEvent, setLocalEvent] = useState(event);
 
   useEffect(() => {
-    const channel = supabase.channel(`event-${localEvent.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'events', filter: `id=eq.${localEvent.id}` }, 
+    // UPDATED: Realtime listener now uses event_id
+    const channel = supabase.channel(`event-${localEvent.event_id}`)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'events', 
+        filter: `event_id=eq.${localEvent.event_id}` 
+      }, 
       (payload) => setLocalEvent(payload.new))
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [localEvent.id]);
+  }, [localEvent.event_id]);
 
   const updateScore = async (matchIdx, playerIdx, score) => {
     const newMatches = [...localEvent.matches];
     newMatches[matchIdx].members[playerIdx].currentRoundScore = parseInt(score) || 0;
     
-    await supabase.from('events').update({ matches: newMatches }).eq('id', localEvent.id);
+    // UPDATED: Filter uses event_id
+    await supabase.from('events')
+      .update({ matches: newMatches })
+      .eq('event_id', localEvent.event_id);
   };
 
   const nextRound = async () => {
     const updatedPlayers = [...localEvent.players];
     
-    // 1. Process Scores
     localEvent.matches.forEach(m => {
       const highest = Math.max(...m.members.map(p => p.currentRoundScore));
       m.members.forEach(member => {
         const pIdx = updatedPlayers.findIndex(p => p.name === member.name);
-        updatedPlayers[pIdx].score += member.currentRoundScore;
-        if (member.currentRoundScore === highest && highest > 0) updatedPlayers[pIdx].wins += 1;
+        if(pIdx !== -1) {
+            updatedPlayers[pIdx].score += member.currentRoundScore;
+            if (member.currentRoundScore === highest && highest > 0) updatedPlayers[pIdx].wins += 1;
+        }
       });
     });
 
-    // 2. Check if finished
     if (localEvent.current_round >= localEvent.max_rounds) {
-      await supabase.from('events').update({ players: updatedPlayers, status: 'finished' }).eq('id', localEvent.id);
+      await supabase.from('events')
+        .update({ players: updatedPlayers, status: 'finished' })
+        .eq('event_id', localEvent.event_id);
       return;
     }
 
-    // 3. Pair next round (Swiss 1v1v1)
     const sorted = [...updatedPlayers].sort((a,b) => b.score - a.score);
     const nextMatches = [];
     for (let i = 0; i < sorted.length; i += 3) {
       nextMatches.push({ id: i, members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
     }
 
+    // UPDATED: Filter uses event_id
     await supabase.from('events').update({
       players: updatedPlayers,
       matches: nextMatches,
       current_round: localEvent.current_round + 1
-    }).eq('id', localEvent.id);
+    }).eq('event_id', localEvent.event_id);
   };
 
   return (
@@ -194,7 +206,12 @@ function ActiveTournament({ event, onBack }) {
               {m.members.map((p, pIdx) => (
                 <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
                   <span>{p.name}</span>
-                  <input type="number" value={p.currentRoundScore} onChange={e => updateScore(mIdx, pIdx, e.target.value)} style={{ width: '60px' }} />
+                  <input 
+                    type="number" 
+                    value={p.currentRoundScore} 
+                    onChange={e => updateScore(mIdx, pIdx, e.target.value)} 
+                    style={{ width: '60px' }} 
+                  />
                 </div>
               ))}
             </div>
@@ -206,7 +223,7 @@ function ActiveTournament({ event, onBack }) {
   );
 }
 
-// --- HELPERS ---
+// --- HELPERS & STYLES ---
 const downloadTxt = (e) => {
   const content = `Event: ${e.name}\n` + e.players.sort((a,b) => b.score - a.score).map(p => `${p.name}: ${p.score}pts`).join('\n');
   const blob = new Blob([content], { type: 'text/plain' });
@@ -215,7 +232,7 @@ const downloadTxt = (e) => {
   link.href = url; link.download = `${e.name}.txt`; link.click();
 };
 
-// --- STYLES ---
 const btnStyle = { padding: '12px', cursor: 'pointer', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', width: '100%' };
 const inputStyle = { padding: '10px', width: '100%', marginBottom: '10px', boxSizing: 'border-box' };
 const matchBox = { border: '1px solid #ddd', padding: '15px', borderRadius: '8px', marginBottom: '10px', background: '#f9f9f9' };
+const historyBox = { border: '1px solid #ccc', padding: '10px', marginBottom: '10px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' };
