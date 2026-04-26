@@ -23,8 +23,14 @@ export default function App() {
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: 'auto', fontFamily: 'system-ui' }}>
       {view === 'MAIN' && (
-        <div style={{ textAlign: 'center', marginTop: '50px' }}>
-          <h1>🏆 Wide Stadium Swiss by BeyDen 🏆</h1>
+        <div style={{ textAlign: 'center', marginTop: '50px', padding: '0 10px' }}>
+          <h1 style={{ 
+            fontSize: '2.5rem', 
+            lineHeight: '1.2', // This adds space between the two lines
+            marginBottom: '30px',
+            wordWrap: 'break-word'
+          }}>
+          🏆 Wide Stadium Swiss by BeyDen 🏆</h1>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             <button onClick={() => setView('CREATE')} style={btnStyle}>➕ Create New Event</button>
             <button onClick={fetchEvents} style={btnStyle}>📋 View Stored Events</button>
