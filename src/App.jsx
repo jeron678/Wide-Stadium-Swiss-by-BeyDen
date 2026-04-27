@@ -52,10 +52,10 @@ export default function App() {
       <div style={contentWrapper}>
         {view === 'MAIN' && (
           <div style={heroSection}>
-            <h1 style={heroTitle}>🏆 Wide Stadium Swiss <span style={brandSpan}>by BeyDen</span></h1>
+            <h1 style={heroTitle}>🏆 Beyblade Manager <span style={brandSpan}>by BeyDen</span></h1>
             <div style={buttonGroup}>
               <button onClick={() => setView('CREATE')} style={primaryBtn}>➕ Create New Event</button>
-              <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournament History</button>
+              <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournaments</button>
               <button onClick={() => setView('SCOREBOARD')} style={accentBtn}>⏱ Live Scoreboard (Ref Tool)</button>
             </div>
           </div>
@@ -261,6 +261,7 @@ function ActiveTournament({ event, onBack }) {
   };
 
   const updateScore = async (roundIdx, matchIdx, playerIdx, score) => {
+    if (localEvent.status === 'finished') return;
     const allRounds = [...localEvent.matches];
     allRounds[roundIdx][matchIdx].members[playerIdx].currentRoundScore = parseInt(score) || 0;
     await supabase.from('events').update({ matches: allRounds }).eq('event_id', localEvent.event_id);
@@ -312,6 +313,8 @@ function ActiveTournament({ event, onBack }) {
     return calculateBuchholz(b, localEvent.players) - calculateBuchholz(a, localEvent.players);
   });
 
+  const isFinalized = localEvent.status === 'finished';
+
   return (
     <div style={activeLayout}>
       <div style={stickyHeader}>
@@ -343,7 +346,7 @@ function ActiveTournament({ event, onBack }) {
                     {m.members.map((p, pIdx) => (
                       <div key={pIdx} style={matchRow}>
                         <span style={pName}>{p.name}</span>
-                        <input type="number" disabled={isCompleted} value={p.currentRoundScore} onChange={e => updateScore(rIdx, mIdx, pIdx, e.target.value)} style={scoreInput} />
+                        <input type="number" disabled={isCompleted || isFinalized} value={p.currentRoundScore} onChange={e => updateScore(rIdx, mIdx, pIdx, e.target.value)} style={scoreInput} />
                       </div>
                     ))}
                   </div>
