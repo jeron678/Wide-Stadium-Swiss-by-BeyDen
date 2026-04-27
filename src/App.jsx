@@ -221,13 +221,6 @@ function CreateEventView({ setView, loadEvent }) {
 
 // --- VIEW: HISTORY ---
 function HistoryView({ events, setEvents, setView, loadEvent }) {
-  const handleDelete = async (id) => {
-    if (window.confirm("Delete this tournament record?")) {
-      const { error } = await supabase.from('events').delete().eq('event_id', id);
-      if (!error) setEvents(events.filter(e => e.event_id !== id));
-    }
-  };
-
   return (
     <div>
       <button onClick={() => setView('MAIN')} style={backBtn}>← Back</button>
@@ -241,7 +234,6 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => loadEvent(e)} style={openBtn}>Open</button>
-              <button onClick={() => handleDelete(e.event_id)} style={deleteBtn}>Delete</button>
             </div>
           </div>
         ))}
@@ -419,7 +411,6 @@ const historyCard = { background: '#1e293b', padding: '20px', borderRadius: '12p
 const historyName = { fontWeight: '700', fontSize: '1.1rem' };
 const historyMeta = { color: '#64748b', fontSize: '0.85rem' };
 const openBtn = { background: '#3b82f6', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' };
-const deleteBtn = { background: '#ef4444', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' };
 const stickyHeader = { position: 'fixed', top: 0, left: 0, right: 0, background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(10px)', borderBottom: '1px solid #334155', zIndex: 100, padding: '15px' };
 const headerContent = { maxWidth: '1000px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const headerTitle = { margin: 0, fontSize: '1.1rem', color: '#3b82f6' };
