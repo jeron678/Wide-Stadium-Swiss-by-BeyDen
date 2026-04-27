@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
 // --- HELPER: BUCHHOLZ CALCULATION ---
+// Calculates the sum of all opponents' current scores to break ties.
 const calculateBuchholz = (player, allPlayers) => {
   if (!player.opponents || player.opponents.length === 0) return 0;
   return player.opponents.reduce((acc, oppName) => {
@@ -31,34 +32,126 @@ export default function App() {
 
   return (
     <div style={appContainer}>
+      {/* Global CSS for Scoreboard Rotation */}
+      <style>{`
+        @media (orientation: portrait) {
+          .landscape-lock {
+            width: 100vh !important;
+            height: 100vw !important;
+            transform: rotate(90deg);
+            transform-origin: center;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            margin-top: -50vw;
+            margin-left: -50vh;
+          }
+        }
+      `}</style>
+
       <div style={contentWrapper}>
         {view === 'MAIN' && (
           <div style={heroSection}>
             <h1 style={heroTitle}>🏆 Wide Stadium Swiss <span style={brandSpan}>by BeyDen</span></h1>
             <div style={buttonGroup}>
               <button onClick={() => setView('CREATE')} style={primaryBtn}>➕ Create New Event</button>
-              <button onClick={fetchEvents} style={secondaryBtn}>📋 View History</button>
+              <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournament History</button>
+              <button onClick={() => setView('SCOREBOARD')} style={accentBtn}>⏱ Live Scoreboard (Ref Tool)</button>
             </div>
           </div>
         )}
 
         {view === 'CREATE' && <CreateEventView setView={setView} loadEvent={loadEvent} />}
-        
-        {view === 'HISTORY' && (
-          <HistoryView 
-            events={events} 
-            setEvents={setEvents} 
-            setView={setView} 
-            loadEvent={loadEvent} 
-          />
-        )}
+        {view === 'HISTORY' && <HistoryView events={events} setEvents={setEvents} setView={setView} loadEvent={loadEvent} />}
+        {view === 'ACTIVE' && <ActiveTournament event={currentEvent} onBack={() => setView('MAIN')} />}
+        {view === 'SCOREBOARD' && <ScoreboardView setView={setView} />}
+      </div>
+    </div>
+  );
+}
 
-        {view === 'ACTIVE' && (
-          <ActiveTournament 
-            event={currentEvent} 
-            onBack={() => setView('MAIN')} 
-          />
-        )}
+// --- VIEW: SCOREBOARD (1v1 / 1v1v1) ---
+function ScoreboardView({ setView }) {
+  const [mode, setMode] = useState(2); 
+  const [scores, setScores] = useState([0, 0, 0]);
+  const [isColorblind, setIsColorblind] = useState(false);
+
+  const increment = (idx) => {
+    const newScores = [...scores];
+    newScores[idx] += 1;
+    setScores(newScores);
+  };
+
+  const decrement = (e, idx) => {
+    e.stopPropagation();
+    const newScores = [...scores];
+    if (newScores[idx] > 0) newScores[idx] -= 1;
+    setScores(newScores);
+  };
+
+  const resetScores = (e) => {
+    e.stopPropagation();
+    if (window.confirm("Reset scores?")) setScores([0, 0, 0]);
+  };
+
+  // Standard vs Colorblind Safe Palettes
+  const standardColors = ['#2563eb', '#ef4444', '#10b981']; // Blue, Red, Green
+  const safeColors = ['#0072B2', '#D55E00', '#F0E442'];     // Sky Blue, Vermillion, Yellow
+  const colors = isColorblind ? safeColors : standardColors;
+
+  // Patterns for Colorblind mode (Optional but helpful)
+  const patterns = [
+    'none', 
+    'repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(0,0,0,0.05) 20px, rgba(0,0,0,0.05) 40px)', 
+    'radial-gradient(circle, rgba(0,0,0,0.05) 20%, transparent 20%)'
+  ];
+
+  return (
+    <div style={sbContainer}>
+      {/* Updated Overlay with Colorblind Toggle */}
+      <div style={sbOverlay}>
+        <button onClick={() => setView('MAIN')} style={sbSmallBtn}>← Exit</button>
+        <button onClick={() => setMode(mode === 2 ? 3 : 2)} style={sbSmallBtn}>
+          {mode === 2 ? '1v1' : '1v1v1'}
+        </button>
+        <button 
+          onClick={() => setIsColorblind(!isColorblind)} 
+          style={{ ...sbSmallBtn, color: isColorblind ? '#10b981' : 'white' }}
+        >
+          👁 {isColorblind ? 'Colorblind: ON' : 'Colorblind: OFF'}
+        </button>
+        <button onClick={resetScores} style={sbSmallBtn}>Reset</button>
+      </div>
+
+      <div className="landscape-lock" style={sbWrapper}>
+        {[...Array(mode)].map((_, i) => (
+          <div 
+            key={i} 
+            onClick={() => increment(i)}
+            style={{ 
+              ...sbSection, 
+              background: colors[i],
+              backgroundImage: isColorblind ? patterns[i] : 'none',
+              backgroundSize: '100px 100px',
+              width: `${100 / mode}%`,
+              position: 'relative'
+            }}
+          >
+            {/* Added a secondary ID (P1, P2) for total clarity */}
+            <div style={sbLabel}>
+              {isColorblind ? `[ P${i + 1} ] ` : ''}PLAYER {i + 1}
+            </div>
+            
+            <div style={sbPoints}>{scores[i]}</div>
+            
+            <button 
+              onClick={(e) => decrement(e, i)}
+              style={sbMinusBtn}
+            >
+              −
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -88,13 +181,13 @@ function CreateEventView({ setView, loadEvent }) {
     }
 
     const shuffled = [...playerList].sort(() => Math.random() - 0.5);
-    const initialMatches = [];
-    for (let i = 0; i < shuffled.length; i += 3) {
+    const initialMatches = [{ id: 0, members: shuffled.slice(0, 3).map(p => ({ ...p, currentRoundScore: 0 })) }];
+    for (let i = 3; i < shuffled.length; i += 3) {
       initialMatches.push({ id: i, members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
     }
 
     const { data, error } = await supabase.from('events').insert([{
-      name: name || "Untitled Event",
+      name: name || "BEYBLADE TOWN LEAGUE",
       players: shuffled,
       matches: [initialMatches], 
       current_round: 1,
@@ -108,10 +201,10 @@ function CreateEventView({ setView, loadEvent }) {
   return (
     <div style={card}>
       <button onClick={() => setView('MAIN')} style={backBtn}>← Back</button>
-      <h2 style={sectionTitle}>New Tournament</h2>
+      <h2 style={sectionTitle}>Initialize Tournament</h2>
       <div style={formGroup}>
         <label style={label}>Event Name</label>
-        <input placeholder="e.g. Town League #1" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+        <input placeholder="e.g. League Round 1" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
       </div>
       <div style={formGroup}>
         <label style={label}>Total Rounds</label>
@@ -119,19 +212,26 @@ function CreateEventView({ setView, loadEvent }) {
       </div>
       <div style={formGroup}>
         <label style={label}>Player Roster (One name per line)</label>
-        <textarea placeholder="Gingka\nKyoya\nRyuga..." value={pastedNames} onChange={e => setPastedNames(e.target.value)} rows={8} style={textArea} />
+        <textarea placeholder="Player 1\nPlayer 2..." value={pastedNames} onChange={e => setPastedNames(e.target.value)} rows={8} style={textArea} />
       </div>
-      <button onClick={handleCreate} style={primaryBtn}>Generate Round 1</button>
+      <button onClick={handleCreate} style={primaryBtn}>Start Tournament</button>
     </div>
   );
 }
 
 // --- VIEW: HISTORY ---
 function HistoryView({ events, setEvents, setView, loadEvent }) {
+  const handleDelete = async (id) => {
+    if (window.confirm("Delete this tournament record?")) {
+      const { error } = await supabase.from('events').delete().eq('event_id', id);
+      if (!error) setEvents(events.filter(e => e.event_id !== id));
+    }
+  };
+
   return (
     <div>
       <button onClick={() => setView('MAIN')} style={backBtn}>← Back</button>
-      <h2 style={sectionTitle}>Tournament History</h2>
+      <h2 style={sectionTitle}>Previous Events</h2>
       <div style={listContainer}>
         {events.map(e => (
           <div key={e.event_id} style={historyCard}>
@@ -139,7 +239,10 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
               <div style={historyName}>{e.name}</div>
               <div style={historyMeta}>{new Date(e.created_at).toLocaleDateString()} • {e.status.toUpperCase()}</div>
             </div>
-            <button onClick={() => loadEvent(e)} style={openBtn}>Open</button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => loadEvent(e)} style={openBtn}>Open</button>
+              <button onClick={() => handleDelete(e.event_id)} style={deleteBtn}>Delete</button>
+            </div>
           </div>
         ))}
       </div>
@@ -148,18 +251,13 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
 }
 
 // --- VIEW: ACTIVE TOURNAMENT ---
-// --- VIEW: ACTIVE TOURNAMENT (Fully Restored with Standings) ---
 function ActiveTournament({ event, onBack }) {
   const [localEvent, setLocalEvent] = useState(event);
 
   useEffect(() => {
     const channel = supabase.channel(`event-${localEvent.event_id}`)
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
-        table: 'events', 
-        filter: `event_id=eq.${localEvent.event_id}` 
-      }, (payload) => setLocalEvent(payload.new))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'events', filter: `event_id=eq.${localEvent.event_id}` }, 
+      (payload) => setLocalEvent(payload.new))
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [localEvent.event_id]);
@@ -167,12 +265,7 @@ function ActiveTournament({ event, onBack }) {
   const updateMaxRounds = async (newVal) => {
     const val = parseInt(newVal);
     if (isNaN(val) || val < localEvent.current_round) return; 
-    
-    const { error } = await supabase.from('events')
-      .update({ max_rounds: val })
-      .eq('event_id', localEvent.event_id);
-    
-    if (error) console.error("Update Rounds Error:", error);
+    await supabase.from('events').update({ max_rounds: val }).eq('event_id', localEvent.event_id);
   };
 
   const updateScore = async (roundIdx, matchIdx, playerIdx, score) => {
@@ -234,17 +327,11 @@ function ActiveTournament({ event, onBack }) {
           <div>
             <h2 style={headerTitle}>{localEvent.name}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>ROUNDS:</span>
-              <input 
-                type="number" 
-                min={localEvent.current_round}
-                value={localEvent.max_rounds} 
-                onChange={(e) => updateMaxRounds(e.target.value)}
-                style={{ background: '#1e293b', border: '1px solid #3b82f6', color: 'white', borderRadius: '4px', width: '50px', textAlign: 'center', fontSize: '0.8rem', padding: '2px' }}
-              />
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>ROUNDS:</span>
+              <input type="number" min={localEvent.current_round} value={localEvent.max_rounds} onChange={(e) => updateMaxRounds(e.target.value)} style={miniInput} />
             </div>
           </div>
-          <button onClick={onBack} style={utilBtn}>Exit Menu</button>
+          <button onClick={onBack} style={utilBtn}>Main Menu</button>
         </div>
       </div>
 
@@ -255,22 +342,16 @@ function ActiveTournament({ event, onBack }) {
             <div key={rIdx} style={isCompleted ? completedRound : currentRound}>
               <div style={roundHeader}>
                 <span style={roundBadge}>ROUND {rIdx + 1}</span>
-                {isCompleted && <span style={statusTag}>Completed</span>}
+                {isCompleted && <span style={statusTag}>Match History</span>}
               </div>
               <div style={matchGrid}>
                 {roundMatches.map((m, mIdx) => (
                   <div key={mIdx} style={matchCard}>
-                    <div style={matchLabel}>MATCH {mIdx + 1}</div>
+                    <div style={matchLabel}>STADIUM {mIdx + 1}</div>
                     {m.members.map((p, pIdx) => (
                       <div key={pIdx} style={matchRow}>
                         <span style={pName}>{p.name}</span>
-                        <input 
-                          type="number" 
-                          disabled={isCompleted}
-                          value={p.currentRoundScore} 
-                          onChange={e => updateScore(rIdx, mIdx, pIdx, e.target.value)} 
-                          style={scoreInput} 
-                        />
+                        <input type="number" disabled={isCompleted} value={p.currentRoundScore} onChange={e => updateScore(rIdx, mIdx, pIdx, e.target.value)} style={scoreInput} />
                       </div>
                     ))}
                   </div>
@@ -282,13 +363,12 @@ function ActiveTournament({ event, onBack }) {
 
         {localEvent.status !== 'finished' && (
           <button onClick={nextRound} style={roundActionBtn}>
-            {localEvent.current_round >= localEvent.max_rounds ? "Finalize & End Tournament" : "Confirm Round & Next Pairings"}
+            {localEvent.current_round >= localEvent.max_rounds ? "Finalize Standings" : "Confirm Round & Next Pairings"}
           </button>
         )}
 
-        {/* --- STANDINGS SECTION (RESTORED) --- */}
         <div style={standingContainer}>
-          <h3 style={sectionTitle}>📊 Rankings</h3>
+          <h3 style={sectionTitle}>📊 Live Standings</h3>
           <div style={tableWrapper}>
             <table style={standingsTable}>
               <thead>
@@ -313,79 +393,116 @@ function ActiveTournament({ event, onBack }) {
               </tbody>
             </table>
           </div>
-          {localEvent.status === 'finished' && (
-            <button 
-              onClick={() => downloadResults(localEvent, sortedPlayers)} 
-              style={{ ...primaryBtn, marginTop: '25px', background: '#10b981' }}
-            >
-              📥 Download Final Standings
-            </button>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-// --- STYLES (BeyDen Pro Theme) ---
-const appContainer = { minHeight: '100vh', background: '#0f172a', color: '#f8fafc', padding: '20px 10px' };
+// --- SHARED STYLES ---
+const appContainer = { minHeight: '100vh', background: '#0f172a', color: '#f8fafc', padding: '20px 10px', fontFamily: 'system-ui' };
 const contentWrapper = { maxWidth: '1000px', margin: '0 auto' };
-
 const heroSection = { textAlign: 'center', padding: '80px 0' };
-const heroTitle = { fontSize: 'clamp(2rem, 8vw, 3.5rem)', fontWeight: '800', marginBottom: '40px', letterSpacing: '-0.02em' };
+const heroTitle = { fontSize: 'clamp(2rem, 8vw, 3.5rem)', fontWeight: '800', marginBottom: '40px' };
 const brandSpan = { display: 'block', color: '#3b82f6', fontSize: '1.5rem', marginTop: '10px' };
 const buttonGroup = { display: 'flex', flexDirection: 'column', gap: '15px', maxWidth: '320px', margin: '0 auto' };
-
-const card = { background: '#1e293b', padding: '30px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)', border: '1px solid #334155' };
-const formGroup = { marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' };
-const label = { fontSize: '0.9rem', fontWeight: '600', color: '#94a3b8' };
-
-const primaryBtn = { background: '#2563eb', color: 'white', padding: '16px', borderRadius: '10px', border: 'none', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.4)' };
-const secondaryBtn = { background: '#334155', color: '#f8fafc', padding: '16px', borderRadius: '10px', border: 'none', fontWeight: '700', cursor: 'pointer' };
-const utilBtn = { background: '#334155', color: 'white', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.85rem' };
-const backBtn = { background: 'transparent', color: '#3b82f6', border: 'none', cursor: 'pointer', marginBottom: '20px', fontWeight: '600' };
-
-const inputStyle = { padding: '12px', borderRadius: '8px', border: '1px solid #334155', background: '#0f172a', color: 'white', fontSize: '1rem' };
+const primaryBtn = { background: '#2563eb', color: 'white', padding: '16px', borderRadius: '12px', border: 'none', fontWeight: '700', cursor: 'pointer' };
+const secondaryBtn = { background: '#334155', color: '#f8fafc', padding: '16px', borderRadius: '12px', border: 'none', fontWeight: '700', cursor: 'pointer' };
+const accentBtn = { background: '#1e293b', color: '#10b981', padding: '16px', borderRadius: '12px', border: '1px solid #10b981', fontWeight: '700', cursor: 'pointer' };
+const card = { background: '#1e293b', padding: '30px', borderRadius: '16px', border: '1px solid #334155' };
+const inputStyle = { padding: '12px', borderRadius: '8px', border: '1px solid #334155', background: '#0f172a', color: 'white' };
 const smallInput = { ...inputStyle, width: '80px' };
-const textArea = { ...inputStyle, resize: 'vertical', fontFamily: 'inherit' };
-
-const listContainer = { display: 'flex', flexDirection: 'column', gap: '12px' };
-const historyCard = { background: '#1e293b', padding: '20px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #334155' };
+const miniInput = { background: '#0f172a', border: '1px solid #3b82f6', color: 'white', borderRadius: '4px', width: '50px', textAlign: 'center', fontSize: '0.8rem' };
+const textArea = { ...inputStyle, resize: 'vertical' };
+const backBtn = { background: 'transparent', color: '#3b82f6', border: 'none', cursor: 'pointer', marginBottom: '20px', fontWeight: '600' };
+const historyCard = { background: '#1e293b', padding: '20px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #334155', marginBottom: '10px' };
 const historyName = { fontWeight: '700', fontSize: '1.1rem' };
-const historyMeta = { color: '#64748b', fontSize: '0.85rem', marginTop: '4px' };
-const openBtn = { background: '#3b82f6', color: 'white', padding: '8px 16px', borderRadius: '6px', border: 'none', fontWeight: '600', cursor: 'pointer' };
-
-const activeLayout = { paddingTop: '70px' };
+const historyMeta = { color: '#64748b', fontSize: '0.85rem' };
+const openBtn = { background: '#3b82f6', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' };
+const deleteBtn = { background: '#ef4444', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' };
 const stickyHeader = { position: 'fixed', top: 0, left: 0, right: 0, background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(10px)', borderBottom: '1px solid #334155', zIndex: 100, padding: '15px' };
 const headerContent = { maxWidth: '1000px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
-const headerTitle = { margin: 0, fontSize: '1.2rem', color: '#3b82f6' };
-
-const roundScrollArea = { display: 'flex', flexDirection: 'column', gap: '50px', padding: '20px 0' };
+const headerTitle = { margin: 0, fontSize: '1.1rem', color: '#3b82f6' };
+const utilBtn = { background: '#334155', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' };
+const roundScrollArea = { display: 'flex', flexDirection: 'column', gap: '50px', padding: '40px 0' };
 const currentRound = { opacity: 1 };
-const completedRound = { opacity: 0.5, filter: 'grayscale(0.5)' };
+const completedRound = { opacity: 0.4, filter: 'grayscale(0.8)' };
 const roundHeader = { display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' };
 const roundBadge = { background: '#2563eb', color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '800' };
-const statusTag = { fontSize: '0.75rem', color: '#64748b', fontWeight: '600', textTransform: 'uppercase' };
-
-const matchGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' };
+const statusTag = { fontSize: '0.75rem', color: '#64748b' };
+const matchGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' };
 const matchCard = { background: '#1e293b', padding: '20px', borderRadius: '12px', border: '1px solid #334155' };
-const matchLabel = { fontSize: '0.65rem', fontWeight: '800', color: '#64748b', marginBottom: '15px', letterSpacing: '0.1em' };
-const matchRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' };
-const pName = { fontWeight: '600', fontSize: '1rem' };
-const scoreInput = { width: '60px', padding: '8px', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#3b82f6', textAlign: 'center', fontWeight: 'bold' };
-
-const roundActionBtn = { ...primaryBtn, margin: '20px auto', display: 'block', maxWidth: '400px' };
-
-const standingContainer = { background: '#1e293b', padding: '30px', borderRadius: '20px', border: '2px solid #2563eb', marginTop: '40px' };
-const tableWrapper = { overflowX: 'auto' };
-const standingsTable = { width: '100%', borderCollapse: 'collapse', marginTop: '10px' };
-const th = { padding: '12px', textAlign: 'center', color: '#64748b', fontSize: '0.8rem', textTransform: 'uppercase', borderBottom: '1px solid #334155' };
+const matchLabel = { fontSize: '0.6rem', fontWeight: '800', color: '#64748b', marginBottom: '10px' };
+const matchRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' };
+const scoreInput = { width: '50px', padding: '6px', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#3b82f6', textAlign: 'center', fontWeight: '700' };
+const roundActionBtn = { ...primaryBtn, margin: '20px auto', display: 'block', width: '100%', maxWidth: '400px' };
+const standingContainer = { background: '#1e293b', padding: '25px', borderRadius: '20px', border: '2px solid #2563eb' };
+const standingsTable = { width: '100%', borderCollapse: 'collapse' };
+const th = { padding: '10px', color: '#64748b', fontSize: '0.75rem', textTransform: 'uppercase', borderBottom: '1px solid #334155' };
 const thLeft = { ...th, textAlign: 'left' };
 const thCenter = { ...th, textAlign: 'center' };
 const tr = { borderBottom: '1px solid #334155' };
-const tdRank = { padding: '15px', textAlign: 'center', fontWeight: '800', color: '#3b82f6' };
-const tdName = { padding: '15px', fontWeight: '700' };
-const tdCenter = { padding: '15px', textAlign: 'center', fontWeight: '600' };
-const tdBH = { ...tdCenter, color: '#94a3b8', fontSize: '0.9rem' };
-const sectionTitle = { fontSize: '1.5rem', fontWeight: '800', marginBottom: '20px' };
-const smallBtn = { padding: '6px 12px', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', fontWeight: '600' };
+const tdRank = { padding: '12px', textAlign: 'center', fontWeight: '800', color: '#3b82f6' };
+const tdName = { padding: '12px', fontWeight: '600' };
+const tdCenter = { padding: '12px', textAlign: 'center' };
+const tdBH = { ...tdCenter, color: '#94a3b8' };
+const sectionTitle = { fontSize: '1.2rem', fontWeight: '800', marginBottom: '20px' };
+const label = { fontSize: '0.85rem', color: '#94a3b8' };
+const formGroup = { marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '5px' };
+const listContainer = { display: 'flex', flexDirection: 'column' };
+const pName = { fontWeight: '500' };
+const activeLayout = { paddingTop: '60px' };
+const tableWrapper = { overflowX: 'auto' };
+
+// --- SCOREBOARD SPECIFIC STYLES ---
+const sbContainer = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: '#000', zIndex: 9999, overflow: 'hidden' };
+const sbOverlay = { position: 'absolute', top: '15px', left: '50%', transform: 'translateX(-50%)', zIndex: 10000, display: 'flex', gap: '10px' };
+const sbSmallBtn = { background: 'rgba(0,0,0,0.5)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', cursor: 'pointer', backdropFilter: 'blur(4px)' };
+const sbWrapper = { display: 'flex', width: '100vw', height: '100vh', transition: 'transform 0.3s ease' };
+const sbSection = {
+  height: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center', // Keeps everything centered vertically
+  alignItems: 'center',
+  cursor: 'pointer',
+  userSelect: 'none',
+  position: 'relative',
+  padding: '20px' // Added padding to prevent touching edges
+};
+
+const sbPoints = {
+  fontSize: 'clamp(6rem, 25vw, 18rem)',
+  fontWeight: '900',
+  color: 'white',
+  textShadow: '2px 2px 0px rgba(0,0,0,0.2), 0 10px 20px rgba(0,0,0,0.4)', 
+  lineHeight: '0.8',
+  margin: '0',
+  zIndex: 1
+};
+
+const sbLabel = {
+  fontSize: 'clamp(0.8rem, 2vw, 1.2rem)', // Scales with screen size
+  fontWeight: '800',
+  color: 'rgba(255,255,255,0.8)',
+  letterSpacing: '0.3em',
+  marginBottom: '20px', // Pushes the number down
+  zIndex: 2,            // Forces label to the "front"
+  textTransform: 'uppercase'
+};
+const sbMinusBtn = {
+  position: 'absolute',
+  bottom: '40px',
+  background: 'rgba(255,255,255,0.1)',
+  border: '2px solid rgba(255,255,255,0.3)',
+  color: 'white',
+  width: '60px',
+  height: '60px',
+  borderRadius: '50%',
+  fontSize: '2rem',
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  cursor: 'pointer',
+  zIndex: 10
+};
