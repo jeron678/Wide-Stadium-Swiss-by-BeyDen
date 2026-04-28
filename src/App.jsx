@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
 // --- HELPER: BUCHHOLZ CALCULATION ---
-// Calculates the sum of all opponents' current scores to break ties.
 const calculateBuchholz = (player, allPlayers) => {
   if (!player.opponents || player.opponents.length === 0) return 0;
   return player.opponents.reduce((acc, oppName) => {
@@ -16,6 +15,23 @@ export default function App() {
   const [view, setView] = useState('MAIN'); 
   const [events, setEvents] = useState([]);
   const [currentEvent, setCurrentEvent] = useState(null);
+  const [refereeData, setRefereeData] = useState(null);
+
+  // REALTIME SUBSCRIPTION: Listen for changes at the App level
+  useEffect(() => {
+    if (!currentEvent?.event_id) return;
+
+    const channel = supabase.channel(`sync-${currentEvent.event_id}`)
+      .on('postgres_changes', 
+        { event: 'UPDATE', schema: 'public', table: 'events', filter: `event_id=eq.${currentEvent.event_id}` }, 
+        (payload) => {
+          setCurrentEvent(payload.new); // Updates the entire app when DB changes
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [currentEvent?.event_id]);
 
   const fetchEvents = async () => {
     const { data, error } = await supabase.from('events').select('*').order('created_at', { ascending: false });
@@ -32,7 +48,6 @@ export default function App() {
 
   return (
     <div style={appContainer}>
-      {/* Global CSS for Scoreboard Rotation */}
       <style>{`
         @media (orientation: portrait) {
           .landscape-lock {
@@ -49,6 +64,14 @@ export default function App() {
         }
       `}</style>
 
+      {view === 'SCOREBOARD' && (
+        <ScoreboardView 
+          setView={setView} 
+          activeMatch={refereeData} 
+          event_id={currentEvent?.event_id} 
+        />
+      )}
+
       <div style={contentWrapper}>
         {view === 'MAIN' && (
           <div style={heroSection}>
@@ -56,102 +79,109 @@ export default function App() {
             <div style={buttonGroup}>
               <button onClick={() => setView('CREATE')} style={primaryBtn}>➕ Create New Event</button>
               <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournaments</button>
-              <button onClick={() => setView('SCOREBOARD')} style={accentBtn}>⏱ Live Scoreboard (Ref Tool)</button>
+              <button onClick={() => {setRefereeData(null); setView('SCOREBOARD')}} style={accentBtn}>⏱ Live Scoreboard (Ref Tool)</button>
             </div>
           </div>
         )}
 
         {view === 'CREATE' && <CreateEventView setView={setView} loadEvent={loadEvent} />}
         {view === 'HISTORY' && <HistoryView events={events} setEvents={setEvents} setView={setView} loadEvent={loadEvent} />}
-        {view === 'ACTIVE' && <ActiveTournament event={currentEvent} onBack={() => setView('MAIN')} />}
-        {view === 'SCOREBOARD' && <ScoreboardView setView={setView} />}
+        {view === 'ACTIVE' && (
+          <ActiveTournament 
+            event={currentEvent} 
+            onBack={() => setView('MAIN')} 
+            setRefereeData={setRefereeData} 
+            setView={setView}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-// --- VIEW: SCOREBOARD (1v1 / 1v1v1) ---
-function ScoreboardView({ setView }) {
-  const [mode, setMode] = useState(2); 
-  const [scores, setScores] = useState([0, 0, 0]);
+// --- VIEW: SCOREBOARD (HYBRID MODE) ---
+function ScoreboardView({ setView, activeMatch, event_id }) {
+  const isTournamentMode = !!activeMatch;
+  const [standaloneMode, setStandaloneMode] = useState(2);
+  const mode = isTournamentMode ? activeMatch.members.length : standaloneMode;
+
+  const [scores, setScores] = useState(
+    isTournamentMode 
+      ? activeMatch.members.map(m => m.currentRoundScore || 0) 
+      : [0, 0, 0]
+  );
+
   const [isColorblind, setIsColorblind] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const increment = (idx) => {
-    const newScores = [...scores];
-    newScores[idx] += 1;
-    setScores(newScores);
-  };
+  const colors = isColorblind ? ['#0072B2', '#D55E00', '#F0E442'] : ['#2563eb', '#ef4444', '#10b981'];
 
-  const decrement = (e, idx) => {
-    e.stopPropagation();
-    const newScores = [...scores];
-    if (newScores[idx] > 0) newScores[idx] -= 1;
-    setScores(newScores);
-  };
-
-  const resetScores = (e) => {
-    e.stopPropagation();
-    if (window.confirm("Reset scores?")) setScores([0, 0, 0]);
-  };
-
-  // Standard vs Colorblind Safe Palettes
-  const standardColors = ['#2563eb', '#ef4444', '#10b981']; // Blue, Red, Green
-  const safeColors = ['#0072B2', '#D55E00', '#F0E442'];     // Sky Blue, Vermillion, Yellow
-  const colors = isColorblind ? safeColors : standardColors;
-
-  // Patterns for Colorblind mode (Optional but helpful)
   const patterns = [
-    'none', 
-    'repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(0,0,0,0.05) 20px, rgba(0,0,0,0.05) 40px)', 
-    'radial-gradient(circle, rgba(0,0,0,0.05) 20%, transparent 20%)'
+    { backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 20px, rgba(255,255,255,0.3) 20px, rgba(255,255,255,0.3) 40px)' }, // vertical stripes
+    { backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 20px, rgba(255,255,255,0.3) 20px, rgba(255,255,255,0.3) 40px)' }, // horizontal stripes
+    { backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(255,255,255,0.3) 20px, rgba(255,255,255,0.3) 40px)' }, // diagonal stripes
   ];
+
+  const handleSubmit = async () => {
+    if (!isTournamentMode || isSubmitting) return;
+    setIsSubmitting(true);
+
+    const { data } = await supabase.from('events').select('matches').eq('event_id', event_id).single();
+    const allRounds = [...data.matches];
+    
+    activeMatch.members.forEach((m, i) => {
+      allRounds[activeMatch.roundIdx][activeMatch.matchIdx].members[i].currentRoundScore = scores[i];
+    });
+    allRounds[activeMatch.roundIdx][activeMatch.matchIdx].submitted = true;
+
+    await supabase.from('events').update({ matches: allRounds }).eq('event_id', event_id);
+    setView('ACTIVE');
+  };
 
   return (
     <div style={sbContainer}>
-      {/* Updated Overlay with Colorblind Toggle */}
-      <div style={sbOverlay}>
-        <button onClick={() => setView('MAIN')} style={sbSmallBtn}>← Exit</button>
-        <button onClick={() => setMode(mode === 2 ? 3 : 2)} style={sbSmallBtn}>
-          {mode === 2 ? '1v1' : '1v1v1'}
-        </button>
-        <button 
-          onClick={() => setIsColorblind(!isColorblind)} 
-          style={{ ...sbSmallBtn, color: isColorblind ? '#10b981' : 'white' }}
-        >
-          👁 {isColorblind ? 'Colorblind: ON' : 'Colorblind: OFF'}
-        </button>
-        <button onClick={resetScores} style={sbSmallBtn}>Reset</button>
-      </div>
-
-      <div className="landscape-lock" style={sbWrapper}>
-        {[...Array(mode)].map((_, i) => (
-          <div 
-            key={i} 
-            onClick={() => increment(i)}
-            style={{ 
-              ...sbSection, 
-              background: colors[i],
-              backgroundImage: isColorblind ? patterns[i] : 'none',
-              backgroundSize: '100px 100px',
-              width: `${100 / mode}%`,
-              position: 'relative'
-            }}
-          >
-            {/* Added a secondary ID (P1, P2) for total clarity */}
-            <div style={sbLabel}>
-              {isColorblind ? `[ P${i + 1} ] ` : ''}PLAYER {i + 1}
-            </div>
-            
-            <div style={sbPoints}>{scores[i]}</div>
-            
-            <button 
-              onClick={(e) => decrement(e, i)}
-              style={sbMinusBtn}
-            >
-              −
+      <div className="landscape-lock" style={sbRotationWrapper}>
+        <div style={sbOverlay}>
+          <button onClick={() => setView(isTournamentMode ? 'ACTIVE' : 'MAIN')} style={sbSmallBtn}>← Exit</button>
+          {!isTournamentMode && (
+            <button onClick={() => setStandaloneMode(mode === 2 ? 3 : 2)} style={sbSmallBtn}>
+              {mode === 2 ? '1v1' : '1v1v1'}
             </button>
-          </div>
-        ))}
+          )}
+          {isTournamentMode && (
+            <button onClick={handleSubmit} style={sbSubmitBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : '💾 Submit & Lock'}
+            </button>
+          )}
+          <button onClick={() => setIsColorblind(!isColorblind)} style={sbSmallBtn}>👁 CB</button>
+          <button onClick={() => setScores([0,0,0])} style={sbSmallBtn}>Reset</button>
+        </div>
+
+        <div style={sbWrapper}>
+          {[...Array(mode)].map((_, i) => (
+            <div 
+              key={i} 
+              onClick={() => {
+                const s = [...scores]; s[i]++; setScores(s);
+              }}
+              style={{ ...sbSection, background: colors[i], ...(isColorblind ? patterns[i % patterns.length] : {}), width: `${100 / mode}%` }}
+            >
+              <div style={sbLabel}>
+                {isTournamentMode ? activeMatch.members[i].name : `PLAYER ${i + 1}`}
+              </div>
+              <div style={sbPoints}>{scores[i]}</div>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const s = [...scores]; if(s[i] > 0) s[i]--; setScores(s);
+                }} 
+                style={sbMinusBtn}
+              >
+                −
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -176,14 +206,14 @@ function CreateEventView({ setView, loadEvent }) {
     if (remainder !== 0) {
       const fillNeeded = 3 - remainder;
       for (let i = 1; i <= fillNeeded; i++) {
-        playerList.push({ name: i === 1 ? "Imposter" : "Imposter2", score: 0, wins: 0, opponents: [], id: `imp-${i}-${Date.now()}` });
+        playerList.push({ name: `Imposter ${i}`, score: 0, wins: 0, opponents: [], id: `imp-${i}-${Date.now()}` });
       }
     }
 
     const shuffled = [...playerList].sort(() => Math.random() - 0.5);
-    const initialMatches = [{ id: 0, members: shuffled.slice(0, 3).map(p => ({ ...p, currentRoundScore: 0 })) }];
-    for (let i = 3; i < shuffled.length; i += 3) {
-      initialMatches.push({ id: i, members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
+    const initialMatches = [];
+    for (let i = 0; i < shuffled.length; i += 3) {
+      initialMatches.push({ id: i, submitted: false, members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
     }
 
     const { data, error } = await supabase.from('events').insert([{
@@ -232,9 +262,7 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
               <div style={historyName}>{e.name}</div>
               <div style={historyMeta}>{new Date(e.created_at).toLocaleDateString()} • {e.status.toUpperCase()}</div>
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => loadEvent(e)} style={openBtn}>Open</button>
-            </div>
+            <button onClick={() => loadEvent(e)} style={openBtn}>Open</button>
           </div>
         ))}
       </div>
@@ -243,33 +271,19 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
 }
 
 // --- VIEW: ACTIVE TOURNAMENT ---
-function ActiveTournament({ event, onBack }) {
-  const [localEvent, setLocalEvent] = useState(event);
-
-  useEffect(() => {
-    const channel = supabase.channel(`event-${localEvent.event_id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'events', filter: `event_id=eq.${localEvent.event_id}` }, 
-      (payload) => setLocalEvent(payload.new))
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [localEvent.event_id]);
+function ActiveTournament({ event, onBack, setRefereeData, setView }) {
+  // Logic simplified: Use 'event' directly from props. 
+  // App component handles the Realtime syncing.
 
   const updateMaxRounds = async (newVal) => {
     const val = parseInt(newVal);
-    if (isNaN(val) || val < localEvent.current_round) return; 
-    await supabase.from('events').update({ max_rounds: val }).eq('event_id', localEvent.event_id);
-  };
-
-  const updateScore = async (roundIdx, matchIdx, playerIdx, score) => {
-    if (localEvent.status === 'finished') return;
-    const allRounds = [...localEvent.matches];
-    allRounds[roundIdx][matchIdx].members[playerIdx].currentRoundScore = parseInt(score) || 0;
-    await supabase.from('events').update({ matches: allRounds }).eq('event_id', localEvent.event_id);
+    if (isNaN(val) || val < event.current_round) return; 
+    await supabase.from('events').update({ max_rounds: val }).eq('event_id', event.event_id);
   };
 
   const nextRound = async () => {
-    const updatedPlayers = [...localEvent.players];
-    const currentRoundMatches = localEvent.matches[localEvent.current_round - 1];
+    const updatedPlayers = [...event.players];
+    const currentRoundMatches = event.matches[event.current_round - 1];
 
     currentRoundMatches.forEach(m => {
       const highest = Math.max(...m.members.map(p => p.currentRoundScore));
@@ -284,8 +298,8 @@ function ActiveTournament({ event, onBack }) {
       });
     });
 
-    if (localEvent.current_round >= localEvent.max_rounds) {
-      await supabase.from('events').update({ players: updatedPlayers, status: 'finished' }).eq('event_id', localEvent.event_id);
+    if (event.current_round >= event.max_rounds) {
+      await supabase.from('events').update({ players: updatedPlayers, status: 'finished' }).eq('event_id', event.event_id);
       return;
     }
 
@@ -297,33 +311,33 @@ function ActiveTournament({ event, onBack }) {
 
     const nextMatches = [];
     for (let i = 0; i < sorted.length; i += 3) {
-      nextMatches.push({ id: i, members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
+      nextMatches.push({ id: i, submitted: false, members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
     }
 
     await supabase.from('events').update({
       players: updatedPlayers,
-      matches: [...localEvent.matches, nextMatches], 
-      current_round: localEvent.current_round + 1
-    }).eq('event_id', localEvent.event_id);
+      matches: [...event.matches, nextMatches], 
+      current_round: event.current_round + 1
+    }).eq('event_id', event.event_id);
   };
 
-  const sortedPlayers = [...localEvent.players].sort((a, b) => {
+  const sortedPlayers = [...event.players].sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     if (b.wins !== a.wins) return b.wins - a.wins;
-    return calculateBuchholz(b, localEvent.players) - calculateBuchholz(a, localEvent.players);
+    return calculateBuchholz(b, event.players) - calculateBuchholz(a, event.players);
   });
 
-  const isFinalized = localEvent.status === 'finished';
+  const isFinalized = event.status === 'finished';
 
   return (
     <div style={activeLayout}>
       <div style={stickyHeader}>
         <div style={headerContent}>
           <div>
-            <h2 style={headerTitle}>{localEvent.name}</h2>
+            <h2 style={headerTitle}>{event.name}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
               <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>ROUNDS:</span>
-              <input type="number" min={localEvent.current_round} value={localEvent.max_rounds} onChange={(e) => updateMaxRounds(e.target.value)} style={miniInput} />
+              <input type="number" min={event.current_round} value={event.max_rounds} onChange={(e) => updateMaxRounds(e.target.value)} style={miniInput} />
             </div>
           </div>
           <button onClick={onBack} style={utilBtn}>Main Menu</button>
@@ -331,8 +345,8 @@ function ActiveTournament({ event, onBack }) {
       </div>
 
       <div style={roundScrollArea}>
-        {localEvent.matches.map((roundMatches, rIdx) => {
-          const isCompleted = rIdx + 1 < localEvent.current_round;
+        {event.matches.map((roundMatches, rIdx) => {
+          const isCompleted = rIdx + 1 < event.current_round;
           return (
             <div key={rIdx} style={isCompleted ? completedRound : currentRound}>
               <div style={roundHeader}>
@@ -346,9 +360,20 @@ function ActiveTournament({ event, onBack }) {
                     {m.members.map((p, pIdx) => (
                       <div key={pIdx} style={matchRow}>
                         <span style={pName}>{p.name}</span>
-                        <input type="number" disabled={isCompleted || isFinalized} value={p.currentRoundScore} onChange={e => updateScore(rIdx, mIdx, pIdx, e.target.value)} style={scoreInput} />
+                        <span style={scoreDisplay}>{p.currentRoundScore || 0}</span>
                       </div>
                     ))}
+                    {!isCompleted && !isFinalized && (
+                      <button 
+                        onClick={() => {
+                          setRefereeData({ roundIdx: rIdx, matchIdx: mIdx, members: m.members });
+                          setView('SCOREBOARD');
+                        }}
+                        style={m.submitted ? editBtn : playBtn}
+                      >
+                        {m.submitted ? '📝 Edit Match' : '▶️ Play Match'}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -356,9 +381,9 @@ function ActiveTournament({ event, onBack }) {
           );
         })}
 
-        {localEvent.status !== 'finished' && (
+        {!isFinalized && (
           <button onClick={nextRound} style={roundActionBtn}>
-            {localEvent.current_round >= localEvent.max_rounds ? "Finalize Standings" : "Confirm Round & Next Pairings"}
+            {event.current_round >= event.max_rounds ? "Finalize Standings" : "Confirm Round & Next Pairings"}
           </button>
         )}
 
@@ -382,7 +407,7 @@ function ActiveTournament({ event, onBack }) {
                     <td style={tdName}>{p.name}</td>
                     <td style={tdCenter}>{p.score}</td>
                     <td style={tdCenter}>{p.wins}</td>
-                    <td style={tdBH}>{calculateBuchholz(p, localEvent.players)}</td>
+                    <td style={tdBH}>{calculateBuchholz(p, event.players)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -394,7 +419,7 @@ function ActiveTournament({ event, onBack }) {
   );
 }
 
-// --- SHARED STYLES ---
+// --- STYLES (UNCHANGED) ---
 const appContainer = { minHeight: '100vh', background: '#0f172a', color: '#f8fafc', padding: '20px 10px', fontFamily: 'system-ui' };
 const contentWrapper = { maxWidth: '1000px', margin: '0 auto' };
 const heroSection = { textAlign: 'center', padding: '80px 0' };
@@ -425,10 +450,9 @@ const roundHeader = { display: 'flex', alignItems: 'center', gap: '15px', margin
 const roundBadge = { background: '#2563eb', color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '800' };
 const statusTag = { fontSize: '0.75rem', color: '#64748b' };
 const matchGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' };
-const matchCard = { background: '#1e293b', padding: '20px', borderRadius: '12px', border: '1px solid #334155' };
+const matchCard = { background: '#1e293b', padding: '20px', borderRadius: '12px', border: '1px solid #334155', display: 'flex', flexDirection: 'column' };
 const matchLabel = { fontSize: '0.6rem', fontWeight: '800', color: '#64748b', marginBottom: '10px' };
 const matchRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' };
-const scoreInput = { width: '50px', padding: '6px', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#3b82f6', textAlign: 'center', fontWeight: '700' };
 const roundActionBtn = { ...primaryBtn, margin: '20px auto', display: 'block', width: '100%', maxWidth: '400px' };
 const standingContainer = { background: '#1e293b', padding: '25px', borderRadius: '20px', border: '2px solid #2563eb' };
 const standingsTable = { width: '100%', borderCollapse: 'collapse' };
@@ -448,55 +472,16 @@ const pName = { fontWeight: '500' };
 const activeLayout = { paddingTop: '60px' };
 const tableWrapper = { overflowX: 'auto' };
 
-// --- SCOREBOARD SPECIFIC STYLES ---
 const sbContainer = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: '#000', zIndex: 9999, overflow: 'hidden' };
-const sbOverlay = { position: 'absolute', top: '15px', left: '50%', transform: 'translateX(-50%)', zIndex: 10000, display: 'flex', gap: '10px' };
+const sbRotationWrapper = { width: '100%', height: '100%' };
+const sbOverlay = { position: 'absolute', top: '15px', left: '50%', transform: 'translateX(-50%)', zIndex: 10000, display: 'flex', gap: '10px', width: '90%', justifyContent: 'center' };
 const sbSmallBtn = { background: 'rgba(0,0,0,0.5)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', cursor: 'pointer', backdropFilter: 'blur(4px)' };
-const sbWrapper = { display: 'flex', width: '100vw', height: '100vh', transition: 'transform 0.3s ease' };
-const sbSection = {
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'center', // Keeps everything centered vertically
-  alignItems: 'center',
-  cursor: 'pointer',
-  userSelect: 'none',
-  position: 'relative',
-  padding: '20px' // Added padding to prevent touching edges
-};
-
-const sbPoints = {
-  fontSize: 'clamp(6rem, 25vw, 18rem)',
-  fontWeight: '900',
-  color: 'white',
-  textShadow: '2px 2px 0px rgba(0,0,0,0.2), 0 10px 20px rgba(0,0,0,0.4)', 
-  lineHeight: '0.8',
-  margin: '0',
-  zIndex: 1
-};
-
-const sbLabel = {
-  fontSize: 'clamp(0.8rem, 2vw, 1.2rem)', // Scales with screen size
-  fontWeight: '800',
-  color: 'rgba(255,255,255,0.8)',
-  letterSpacing: '0.3em',
-  marginBottom: '20px', // Pushes the number down
-  zIndex: 2,            // Forces label to the "front"
-  textTransform: 'uppercase'
-};
-const sbMinusBtn = {
-  position: 'absolute',
-  bottom: '40px',
-  background: 'rgba(255,255,255,0.1)',
-  border: '2px solid rgba(255,255,255,0.3)',
-  color: 'white',
-  width: '60px',
-  height: '60px',
-  borderRadius: '50%',
-  fontSize: '2rem',
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
-  cursor: 'pointer',
-  zIndex: 10
-};
+const sbSubmitBtn = { ...sbSmallBtn, background: '#10b981', border: 'none', fontWeight: 'bold' };
+const sbWrapper = { display: 'flex', width: '100%', height: '100%' };
+const sbSection = { height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', userSelect: 'none', position: 'relative' };
+const sbPoints = { fontSize: 'clamp(6rem, 25vw, 18rem)', fontWeight: '900', color: 'white', textShadow: '0 10px 20px rgba(0,0,0,0.4)', lineHeight: '0.8' };
+const sbLabel = { fontSize: 'clamp(0.8rem, 2vw, 1.2rem)', fontWeight: '800', color: 'rgba(255,255,255,0.8)', letterSpacing: '0.3em', marginBottom: '20px', textTransform: 'uppercase' };
+const sbMinusBtn = { position: 'absolute', bottom: '40px', background: 'rgba(255,255,255,0.1)', border: '2px solid rgba(255,255,255,0.3)', color: 'white', width: '60px', height: '60px', borderRadius: '50%', fontSize: '2rem', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', zIndex: 10 };
+const playBtn = { width: '100%', marginTop: 'auto', padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' };
+const editBtn = { ...playBtn, background: '#334155', color: '#94a3b8' };
+const scoreDisplay = { fontWeight: 'bold', color: '#3b82f6', fontSize: '1.2rem' };
