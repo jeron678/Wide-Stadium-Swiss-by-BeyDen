@@ -132,7 +132,7 @@ function ScoreboardView({ setView, activeMatch, event_id }) {
     activeMatch.members.forEach((m, i) => {
       allRounds[activeMatch.roundIdx][activeMatch.matchIdx].members[i].currentRoundScore = scores[i];
     });
-    allRounds[activeMatch.roundIdx][activeMatch.matchIdx].submitted = true;
+    allRounds[activeMatch.roundIdx][activeMatch.matchIdx].status = 'completed';
 
     await supabase.from('events').update({ matches: allRounds }).eq('event_id', event_id);
     setView('ACTIVE');
@@ -213,7 +213,7 @@ function CreateEventView({ setView, loadEvent }) {
     const shuffled = [...playerList].sort(() => Math.random() - 0.5);
     const initialMatches = [];
     for (let i = 0; i < shuffled.length; i += 3) {
-      initialMatches.push({ id: i, submitted: false, members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
+      initialMatches.push({ id: i, status: 'pending', members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
     }
 
     const { data, error } = await supabase.from('events').insert([{
@@ -311,7 +311,7 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
 
     const nextMatches = [];
     for (let i = 0; i < sorted.length; i += 3) {
-      nextMatches.push({ id: i, submitted: false, members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
+      nextMatches.push({ id: i, status: 'pending', members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
     }
 
     await supabase.from('events').update({
@@ -354,28 +354,70 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
                 {isCompleted && <span style={statusTag}>Match History</span>}
               </div>
               <div style={matchGrid}>
-                {roundMatches.map((m, mIdx) => (
-                  <div key={mIdx} style={matchCard}>
+                {roundMatches.map((m, mIdx) => {
+                  const getCardBackground = () => {
+                    if (m.status === 'pending') return '#1e293b';
+                    if (m.status === 'playing') return '#1e3a2f';
+                    if (m.status === 'completed') return '#2d3a1a';
+                    return '#1e293b';
+                  };
+                  
+                  const getWinner = () => {
+                    if (m.status !== 'completed') return null;
+                    const maxScore = Math.max(...m.members.map(p => p.currentRoundScore || 0));
+                    return m.members.find(p => (p.currentRoundScore || 0) === maxScore);
+                  };
+                  
+                  const winner = getWinner();
+                  
+                  return (
+                  <div key={mIdx} style={{ ...matchCard, background: getCardBackground() }}>
                     <div style={matchLabel}>STADIUM {mIdx + 1}</div>
-                    {m.members.map((p, pIdx) => (
-                      <div key={pIdx} style={matchRow}>
-                        <span style={pName}>{p.name}</span>
+                    {m.members.map((p, pIdx) => {
+                      const isWinner = winner && p.name === winner.name;
+                      const winnerStyle = isWinner ? { ...matchRow, background: 'rgba(16, 185, 129, 0.2)', borderLeft: '4px solid #10b981', paddingLeft: '8px' } : matchRow;
+                      return (
+                      <div key={pIdx} style={winnerStyle}>
+                        <span style={pName}>{isWinner ? '🏆 ' : ''}{p.name}</span>
                         <span style={scoreDisplay}>{p.currentRoundScore || 0}</span>
                       </div>
-                    ))}
+                      );
+                    })}
                     {!isCompleted && !isFinalized && (
                       <button 
-                        onClick={() => {
+                        onClick={async () => {
+                          const updatedMatches = [...event.matches];
+                          updatedMatches[rIdx][mIdx].status = 'playing';
+                          await supabase.from('events').update({ matches: updatedMatches }).eq('event_id', event.event_id);
                           setRefereeData({ roundIdx: rIdx, matchIdx: mIdx, members: m.members });
                           setView('SCOREBOARD');
                         }}
-                        style={m.submitted ? editBtn : playBtn}
+                        style={m.status === 'pending' ? playBtn : editBtn}
                       >
-                        {m.submitted ? '📝 Edit Match' : '▶️ Play Match'}
+                        {m.status === 'pending' ? '▶️ Play Match' : '📝 Edit Match'}
                       </button>
                     )}
                   </div>
-                ))}
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        {[...Array(Math.max(0, event.max_rounds - event.matches.length))].map((_, i) => {
+          const futureRoundNum = event.matches.length + i + 1;
+          return (
+            <div key={`future-${i}`} style={{ ...completedRound, opacity: 0.3 }}>
+              <div style={roundHeader}>
+                <span style={roundBadge}>ROUND {futureRoundNum}</span>
+                <span style={statusTag}>Upcoming</span>
+              </div>
+              <div style={{ ...matchGrid, opacity: 0.5 }}>
+                <div style={matchCard}>
+                  <div style={matchLabel}>Matches pending confirmation</div>
+                  <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: 0 }}>This round will be created once the previous round is confirmed.</p>
+                </div>
               </div>
             </div>
           );
