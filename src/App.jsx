@@ -15,6 +15,58 @@ const calculateBuchholz = (player, allPlayers) => {
   }, 0);
 };
 
+// --- HELPER: BUILD ITEM GROUPS FROM CSV ---
+const buildItemGroups = (matrix) => {
+  const groups = {};
+  const TYPES = ["Attack", "Defense", "Stamina", "Balance"];
+  const numCols = matrix[0]?.length || 0;
+
+  for (let col = 0; col < numCols; col++) {
+    const groupHeader = matrix[0]?.[col]; // Blades, Ratchets, Bits
+    const category = matrix[1]?.[col];     // BX, UX, Normal, Integrated-Bit
+    const row3 = matrix[2]?.[col];         // Main Blade, 0, Turbo
+    const row4 = matrix[3]?.[col];         // Attack, 0-60, Accel
+
+    if (!groupHeader || !category) continue;
+
+    let displayCategory = category;
+    let subCategory = row3 || "General";
+    let startRow = 4; // Items usually start at Row 5 (index 4)
+
+    if (groupHeader === "Blades") {
+      // Add Type info to subcategory name if present for all systems
+      if (TYPES.includes(row4)) {
+        subCategory = `${row3} (${row4})`;
+      }
+    } else if (GENERAL_GROUPS.includes(groupHeader)) {
+      displayCategory = groupHeader;
+
+      // NEW LOGIC: Check if this specific column is actually an Integrated Bit
+      if (category === "Integrated Bit" || category === "Integrated-Bit") {
+        displayCategory = "Integrated-Bit";
+      }
+
+      // Logic for Ratchets/Bits metadata
+      if (row3 && row3 !== "Normal" && row3 !== "Simple" && row3 !== "Integrated Bit") {
+        subCategory = row3;
+      }
+      startRow = 3; // Items start earlier in these columns
+    }
+
+    const key = `${displayCategory}||${subCategory}`;
+    if (!groups[key]) groups[key] = { category: displayCategory, subCategory, items: [] };
+
+    for (let row = startRow; row < matrix.length; row++) {
+      const part = matrix[row]?.[col];
+      if (part && part !== "" && !TYPES.includes(part) && part !== "Main Blade") {
+        groups[key].items.push(part);
+      }
+    }
+  }
+
+  return Object.values(groups).map(g => ({ ...g, items: Array.from(new Set(g.items)) }));
+};
+
 // --- MAIN APP ---
 export default function App() {
   const [view, setView] = useState('MAIN'); 
@@ -23,6 +75,8 @@ export default function App() {
   const [refereeData, setRefereeData] = useState(null);
   const [searchTerm, setSearchTerm] = useState({ Blades: '', Ratchets: '', Bits: '' });
   const [itemGroups, setItemGroups] = useState([]);
+  const [librarySort, setLibrarySort] = useState({ column: 'name', ascending: true });
+  const [libraryFilters, setLibraryFilters] = useState({ Blades: { system: null, type: null, class: null }, Ratchets: { type: null }, Bits: { system: null, type: null } });
 
   // REALTIME SUBSCRIPTION: Listen for changes at the App level
   useEffect(() => {
@@ -39,6 +93,17 @@ export default function App() {
 
     return () => supabase.removeChannel(channel);
   }, [currentEvent?.event_id]);
+
+  // FETCH BEYBLADE PARTS DATA
+  useEffect(() => {
+    fetch(SHEET_URL)
+      .then(res => res.text())
+      .then(csv => {
+        const rows = csv.split('\n').map(row => row.split(',').map(cell => cell.trim()));
+        const groups = buildItemGroups(rows);
+        setItemGroups(groups);
+      });
+  }, []);
 
   const fetchEvents = async () => {
     const { data, error } = await supabase.from('events').select('*').order('created_at', { ascending: false });
@@ -88,7 +153,7 @@ export default function App() {
               <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournaments</button>
               <button onClick={() => {setRefereeData(null); setView('SCOREBOARD')}} style={accentBtn}>⏱ Live Scoreboard (Ref Tool)</button>
               <button onClick={() => setView('RANDOMIZER')} style={secondaryBtn}>🎲 Beyblade Combo Randomizer</button>
-              <button onClick={() => setView('PARTS_LIBRARY')} style={secondaryBtn}>📂 Beyblade Parts (WIP)</button>
+              <button onClick={() => setView('PARTS_LIBRARY')} style={secondaryBtn}>📂 Beyblade Parts</button>
             </div>
           </div>
         )}
@@ -111,53 +176,143 @@ export default function App() {
               <h2 style={{ margin: 0 }}>Beyblade Parts Library</h2>
             </div>
 
-            {PART_TABLES.map(tableType => (
-              <div key={tableType} style={tableSection}>
-                <div style={tableHeaderRow}>
-                  <h3 style={{ margin: 0 }}>{tableType}</h3>
-                  <input 
-                    placeholder={`Search ${tableType}...`}
-                    style={searchBarStyle}
-                    onChange={(e) => setSearchTerm({...searchTerm, [tableType]: e.target.value})}
-                  />
-                </div>
+            {PART_TABLES.map(tableType => {
+              const tableData = itemGroups
+                .filter(group => {
+                  if (tableType === 'Bits') return group.category === 'Bits' || group.category === 'Integrated-Bit';
+                  if (tableType === 'Ratchets') return group.category === 'Ratchets';
+                  if (tableType === 'Blades') return !['Ratchets', 'Bits', 'Integrated-Bit'].includes(group.category);
+                  return false;
+                })
+                .flatMap(group => group.items.map(itemName => ({
+                  name: itemName,
+                  system: group.category,
+                  type: group.subCategory,
+                  class: group.subCategory.match(/\((Attack|Defense|Stamina|Balance)\)/)?.[1] || null
+                })))
+                .filter(part => part.name.toLowerCase().includes(searchTerm[tableType].toLowerCase()))
+                .filter(part => {
+                  const filters = libraryFilters[tableType];
+                  if (filters.system && part.system !== filters.system) return false;
+                  if (filters.type && part.type !== filters.type) return false;
+                  if (tableType === 'Blades' && filters.class && part.class !== filters.class) return false;
+                  return true;
+                })
+                .sort((a, b) => {
+                  let aVal = a[librarySort.column];
+                  let bVal = b[librarySort.column];
+                  if (librarySort.column === 'name') {
+                    aVal = aVal.toLowerCase();
+                    bVal = bVal.toLowerCase();
+                  }
+                  if (aVal < bVal) return librarySort.ascending ? -1 : 1;
+                  if (aVal > bVal) return librarySort.ascending ? 1 : -1;
+                  return 0;
+                });
 
-                <div style={tableWrapper}>
-                  <table style={partsTable}>
-                    <thead>
-                      <tr>
-                        <th style={thStyle}>Part Name</th>
-                        <th style={thStyle}>System</th>
-                        <th style={thStyle}>Sub-Type / Class</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {itemGroups
-                        .filter(group => {
-                          // Categorize Integrated-Bits under 'Bits' table
-                          if (tableType === 'Bits') return group.category === 'Bits' || group.category === 'Integrated-Bit';
-                          if (tableType === 'Ratchets') return group.category === 'Ratchets';
-                          if (tableType === 'Blades') return !['Ratchets', 'Bits', 'Integrated-Bit'].includes(group.category);
-                          return false;
-                        })
-                        .flatMap(group => group.items.map(itemName => ({
-                          name: itemName,
-                          system: group.category,
-                          type: group.subCategory
-                        })))
-                        .filter(part => part.name.toLowerCase().includes(searchTerm[tableType].toLowerCase()))
-                        .map((part, idx) => (
+              const uniqueSystems = [...new Set(itemGroups
+                .filter(group => {
+                  if (tableType === 'Bits') return group.category === 'Bits' || group.category === 'Integrated-Bit';
+                  if (tableType === 'Ratchets') return group.category === 'Ratchets';
+                  if (tableType === 'Blades') return !['Ratchets', 'Bits', 'Integrated-Bit'].includes(group.category);
+                  return false;
+                })
+                .map(g => g.category)
+              )].sort();
+
+              const uniqueTypes = [...new Set(itemGroups
+                .filter(group => {
+                  if (tableType === 'Bits') return group.category === 'Bits' || group.category === 'Integrated-Bit';
+                  if (tableType === 'Ratchets') return group.category === 'Ratchets';
+                  if (tableType === 'Blades') return !['Ratchets', 'Bits', 'Integrated-Bit'].includes(group.category);
+                  return false;
+                })
+                .map(g => g.subCategory)
+              )].sort();
+
+              return (
+                <div key={tableType} style={tableSection}>
+                  <div style={tableHeaderRow}>
+                    <h3 style={{ margin: 0 }}>{tableType}</h3>
+                    <input 
+                      placeholder={`Search ${tableType}...`}
+                      style={searchBarStyle}
+                      onChange={(e) => setSearchTerm({...searchTerm, [tableType]: e.target.value})}
+                    />
+                  </div>
+
+                  <div style={filterRowStyle}>
+                    <select 
+                      value={libraryFilters[tableType].system || ''}
+                      onChange={(e) => setLibraryFilters({...libraryFilters, [tableType]: {...libraryFilters[tableType], system: e.target.value || null}})}
+                      style={filterSelectStyle}
+                    >
+                      <option value="">All Systems</option>
+                      {uniqueSystems.map(sys => <option key={sys} value={sys}>{sys}</option>)}
+                    </select>
+
+                    <select 
+                      value={libraryFilters[tableType].type || ''}
+                      onChange={(e) => setLibraryFilters({...libraryFilters, [tableType]: {...libraryFilters[tableType], type: e.target.value || null}})}
+                      style={filterSelectStyle}
+                    >
+                      <option value="">All Types</option>
+                      {uniqueTypes.map(typ => <option key={typ} value={typ}>{typ}</option>)}
+                    </select>
+
+                    {tableType === 'Blades' && (
+                      <select 
+                        value={libraryFilters[tableType].class || ''}
+                        onChange={(e) => setLibraryFilters({...libraryFilters, [tableType]: {...libraryFilters[tableType], class: e.target.value || null}})}
+                        style={filterSelectStyle}
+                      >
+                        <option value="">All Classes</option>
+                        <option value="Attack">Attack</option>
+                        <option value="Defense">Defense</option>
+                        <option value="Stamina">Stamina</option>
+                        <option value="Balance">Balance</option>
+                      </select>
+                    )}
+                  </div>
+
+                  <div style={tableWrapper}>
+                    <table style={partsTable}>
+                      <thead>
+                        <tr>
+                          <th 
+                            style={{...thStyle, cursor: 'pointer'}}
+                            onClick={() => setLibrarySort({ column: 'name', ascending: librarySort.column === 'name' ? !librarySort.ascending : true })}
+                          >
+                            Part Name {librarySort.column === 'name' && (librarySort.ascending ? '↑' : '↓')}
+                          </th>
+                          <th 
+                            style={{...thStyle, cursor: 'pointer'}}
+                            onClick={() => setLibrarySort({ column: 'system', ascending: librarySort.column === 'system' ? !librarySort.ascending : true })}
+                          >
+                            System {librarySort.column === 'system' && (librarySort.ascending ? '↑' : '↓')}
+                          </th>
+                          <th 
+                            style={{...thStyle, cursor: 'pointer'}}
+                            onClick={() => setLibrarySort({ column: 'type', ascending: librarySort.column === 'type' ? !librarySort.ascending : true })}
+                          >
+                            Sub-Type / Class {librarySort.column === 'type' && (librarySort.ascending ? '↑' : '↓')}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tableData.map((part, idx) => (
                           <tr key={`${part.name}-${idx}`} style={trStyle}>
                             <td style={tdNameStyle}>{part.name}</td>
                             <td style={tdStyle}><span style={badgeStyle}>{part.system}</span></td>
                             <td style={tdStyle}>{part.type}</td>
                           </tr>
                         ))}
-                    </tbody>
-                  </table>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -236,59 +391,6 @@ export function BladeRandomizer({ onBack }) {
         setLoading(false);
       });
   }, []);
-
-  const buildItemGroups = (matrix) => {
-    const groups = {};
-    const TYPES = ["Attack", "Defense", "Stamina", "Balance"];
-    const numCols = matrix[0]?.length || 0;
-
-    for (let col = 0; col < numCols; col++) {
-      const groupHeader = matrix[0]?.[col]; // Blades, Ratchets, Bits
-      const category = matrix[1]?.[col];     // BX, UX, Normal, Integrated-Bit
-      const row3 = matrix[2]?.[col];         // Main Blade, 0, Turbo
-      const row4 = matrix[3]?.[col];         // Attack, 0-60, Accel
-
-      if (!groupHeader || !category) continue;
-
-      let displayCategory = category;
-      let subCategory = row3 || "General";
-      let startRow = 4; // Items usually start at Row 5 (index 4)
-
-      if (groupHeader === "Blades") {
-        if (category !== "CX" && category !== "CX-Expand") {
-          // Add Type info to subcategory name for normal Blades
-          if (TYPES.includes(row4)) {
-            subCategory = `${row3} (${row4})`;
-          }
-        }
-      } else if (GENERAL_GROUPS.includes(groupHeader)) {
-        displayCategory = groupHeader;
-
-        // NEW LOGIC: Check if this specific column is actually an Integrated Bit
-        if (category === "Integrated Bit" || category === "Integrated-Bit") {
-          displayCategory = "Integrated-Bit";
-        }
-
-        // Logic for Ratchets/Bits metadata
-        if (row3 && row3 !== "Normal" && row3 !== "Simple" && row3 !== "Integrated Bit") {
-          subCategory = row3;
-        }
-        startRow = 3; // Items start earlier in these columns
-      }
-
-      const key = `${displayCategory}||${subCategory}`;
-      if (!groups[key]) groups[key] = { category: displayCategory, subCategory, items: [] };
-
-      for (let row = startRow; row < matrix.length; row++) {
-        const part = matrix[row]?.[col];
-        if (part && part !== "" && !TYPES.includes(part) && part !== "Main Blade") {
-          groups[key].items.push(part);
-        }
-      }
-    }
-
-    return Object.values(groups).map(g => ({ ...g, items: Array.from(new Set(g.items)) }));
-  };
 
   const getBladeParts = (cat, subCat) => {
     const parts = [];
@@ -1220,6 +1322,8 @@ const scoreDisplay = { fontWeight: 'bold', color: '#3b82f6', fontSize: '1.2rem' 
 const libraryContainer = { padding: '20px', maxWidth: '1200px', margin: '0 auto', color: 'white' };
 const tableSection = { marginBottom: '40px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '15px' };
 const tableHeaderRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' };
+const filterRowStyle = { display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' };
+const filterSelectStyle = { background: '#1e293b', border: '1px solid #334155', color: 'white', padding: '8px 12px', borderRadius: '6px', fontSize: '0.9rem', cursor: 'pointer' };
 const searchBarStyle = { background: '#1e293b', border: '1px solid #334155', color: 'white', padding: '8px 12px', borderRadius: '6px', width: '200px' };
 const tableWrapper = { overflowX: 'auto', maxHeight: '400px', overflowY: 'auto' };
 const partsTable = { width: '100%', borderCollapse: 'collapse', textAlign: 'left' };
