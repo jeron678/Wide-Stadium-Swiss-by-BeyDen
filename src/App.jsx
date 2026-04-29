@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
+const CATEGORIES = ['BX', 'UX', 'BX-00', 'BX-Expand', 'UX-Expand', 'Collab', 'CX', 'CX-Expand'];
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTuOYycxCrAi5gLW-6B0Cx-59cPNNg8_6RoBYEWqh80fPHqBElnc5Y79sAt5VT1vraX812rRuTZunHo/pub?output=csv";
+
 // --- HELPER: BUCHHOLZ CALCULATION ---
 const calculateBuchholz = (player, allPlayers) => {
   if (!player.opponents || player.opponents.length === 0) return 0;
@@ -80,6 +83,7 @@ export default function App() {
               <button onClick={() => setView('CREATE')} style={primaryBtn}>➕ Create New Event</button>
               <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournaments</button>
               <button onClick={() => {setRefereeData(null); setView('SCOREBOARD')}} style={accentBtn}>⏱ Live Scoreboard (Ref Tool)</button>
+              <button onClick={() => setView('RANDOMIZER')} style={secondaryBtn}>🎲 Beyblade Combo Randomizer</button>
             </div>
           </div>
         )}
@@ -94,10 +98,162 @@ export default function App() {
             setView={setView}
           />
         )}
+        {view === 'RANDOMIZER' && <BladeRandomizer onBack={() => setView('MAIN')} />}
       </div>
     </div>
   );
 }
+
+export function BladeRandomizer({ onBack }) {
+  const [dataMatrix, setDataMatrix] = useState([]);
+  const [filters, setFilters] = useState(
+    CATEGORIES.reduce((acc, cat) => ({ ...acc, [cat]: true }), {})
+  );
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(SHEET_URL)
+      .then(res => res.text())
+      .then(csv => {
+        const rows = csv.split('\n').map(row => row.split(',').map(cell => cell.trim()));
+        setDataMatrix(rows);
+        setLoading(false);
+      });
+  }, []);
+
+  // Helper to get parts from the BLADE section (Rows 2 & 3 headers)
+  const getBladeParts = (cat, subCat) => {
+    const parts = [];
+    const numCols = dataMatrix[0]?.length || 0;
+    for (let col = 0; col < numCols; col++) {
+      const rowCat = dataMatrix[1]?.[col];
+      const rowSubCat = dataMatrix[2]?.[col];
+      if (rowCat === cat && rowSubCat === subCat) {
+        for (let row = 3; row < dataMatrix.length; row++) {
+          const partName = dataMatrix[row]?.[col];
+          if (partName && partName !== "") parts.push(partName);
+        }
+      }
+    }
+    return parts;
+  };
+
+  // Helper to get parts from RATCHET/BIT sections (Row 1 header)
+  const getGeneralParts = (headerName) => {
+    const parts = [];
+    const numCols = dataMatrix[0]?.length || 0;
+    for (let col = 0; col < numCols; col++) {
+      if (dataMatrix[0]?.[col] === headerName) {
+        for (let row = 1; row < dataMatrix.length; row++) {
+          const partName = dataMatrix[row]?.[col];
+          if (partName && partName !== "") parts.push(partName);
+        }
+      }
+    }
+    return parts;
+  };
+
+  const pick = (list) => (list && list.length > 0) ? list[Math.floor(Math.random() * list.length)] : null;
+
+  const generateRandom = () => {
+    const activeCats = CATEGORIES.filter(cat => filters[cat]);
+    if (activeCats.length === 0) return alert("Select at least one category.");
+
+    const chosenCat = activeCats[Math.floor(Math.random() * activeCats.length)];
+    let combo = [];
+
+    // 1. SELECT BLADE COMPONENTS
+    if (chosenCat === 'CX') {
+      combo.push({ type: 'Lock Chip', name: pick(getBladeParts('CX', 'Lock Chip')) });
+      combo.push({ type: 'Main Blade', name: pick(getBladeParts('CX', 'Main Blade')) });
+      combo.push({ type: 'Assist Blade', name: pick(getBladeParts('CX', 'Assist Blade')) });
+    } else if (chosenCat === 'CX-Expand') {
+      combo.push({ type: 'Lock Chip', name: pick(getBladeParts('CX', 'Lock Chip')) });
+      combo.push({ type: 'Metal Blade', name: pick(getBladeParts('CX-Expand', 'Metal Blade')) });
+      combo.push({ type: 'Over Blade', name: pick(getBladeParts('CX-Expand', 'Over Blade')) });
+      combo.push({ type: 'Assist Blade', name: pick(getBladeParts('CX', 'Assist Blade')) });
+    } else {
+      combo.push({ type: 'Blade', name: pick(getBladeParts(chosenCat, 'Main Blade')) });
+    }
+
+    // 2. SELECT RATCHET & BIT (Compatibility Logic)
+    const allRatchets = getGeneralParts('Ratchets');
+    const allBits = getGeneralParts('Bits');
+    const allIntegrated = getGeneralParts('Integrated-Bit');
+
+    if (chosenCat === 'UX-Expand') {
+      // RULE: UX-Expand can only choose ONE from bits (No Ratchet)
+      combo.push({ type: 'Bit', name: pick(allBits) });
+    } else {
+      // Logic: Roll to see if we use an Integrated-Bit (~15% chance if exists)
+      const useIntegrated = allIntegrated.length > 0 && Math.random() < 0.15;
+
+      if (useIntegrated) {
+        // RULE: If Integrated-Bit is selected, it cannot have a ratchet
+        combo.push({ type: 'Integrated-Bit', name: pick(allIntegrated) });
+      } else {
+        // Standard Setup: 1 Ratchet + 1 Bit
+        combo.push({ type: 'Ratchet', name: pick(allRatchets) });
+        combo.push({ type: 'Bit', name: pick(allBits) });
+      }
+    }
+
+    setResult({ category: chosenCat, parts: combo.filter(p => p.name) });
+  };
+
+  return (
+    <div style={card}>
+      <button onClick={onBack} style={backBtn}>← Back</button>
+      <h2 style={sectionTitle}>Beyblade Combo Randomizer</h2>
+      
+      <div style={filterGrid}>
+        {CATEGORIES.map(cat => (
+          <label key={cat} style={checkboxLabel}>
+            <input type="checkbox" checked={filters[cat]} onChange={() => setFilters({...filters, [cat]: !filters[cat]})} /> {cat}
+          </label>
+        ))}
+      </div>
+
+      <button onClick={generateRandom} style={primaryBtn} disabled={loading}>
+        {loading ? 'Fetching Parts...' : '🎲 Generate Random Combo'}
+      </button>
+
+      {result && (
+        <div style={resultContainer}>
+          <div style={resultBadge}>{result.category} System</div>
+          <div style={resultList}>
+            {result.parts.map((p, i) => (
+              <div key={i} style={{...resultItem, color: getPartColor(p.type)}}>
+                <span style={partType}>{p.type}:</span> {p.name}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+const getPartColor = (type) => {
+  if (type === 'Ratchet') return '#fbbf24'; // Yellow
+  if (type.includes('Bit')) return '#34d399'; // Green
+  if (type.includes('Blade') || type.includes('Chip')) return '#60a5fa'; // Blue
+  return '#ffffff';
+};
+
+// Additional Styles for your CSS-in-JS
+const filterGrid = { 
+  display: 'grid', 
+  gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', 
+  gap: '10px', 
+  marginBottom: '20px' 
+};
+const checkboxLabel = { fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' };
+const resultContainer = { marginTop: '30px', padding: '20px', background: '#0f172a', borderRadius: '12px', border: '1px solid #3b82f6', textAlign: 'center' };
+const resultBadge = { background: '#3b82f6', color: 'white', display: 'inline-block', padding: '4px 12px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: '800', marginBottom: '15px' };
+const resultList = { display: 'flex', flexDirection: 'column', gap: '10px' };
+const resultItem = { fontSize: '1.2rem', fontWeight: 'bold' };
+const partType = { color: '#64748b', fontSize: '0.8rem', marginRight: '10px', textTransform: 'uppercase' };
 
 // --- VIEW: SCOREBOARD (HYBRID MODE) ---
 function ScoreboardView({ setView, activeMatch, event_id }) {
@@ -460,6 +616,8 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
     </div>
   );
 }
+
+
 
 // --- STYLES (UNCHANGED) ---
 const appContainer = { minHeight: '100vh', background: '#0f172a', color: '#f8fafc', padding: '20px 10px', fontFamily: 'system-ui' };
