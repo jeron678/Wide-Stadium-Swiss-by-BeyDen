@@ -110,6 +110,8 @@ export function BladeRandomizer({ onBack }) {
     CATEGORIES.reduce((acc, cat) => ({ ...acc, [cat]: true }), {})
   );
   const [result, setResult] = useState(null);
+  const [deckResult, setDeckResult] = useState(null);
+  const [allowRepeats, setAllowRepeats] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -200,6 +202,70 @@ export function BladeRandomizer({ onBack }) {
     }
 
     setResult({ category: chosenCat, parts: combo.filter(p => p.name) });
+    setDeckResult(null);
+  };
+
+  const generate3on3 = () => {
+    const activeCats = CATEGORIES.filter(cat => filters[cat]);
+    if (activeCats.length === 0) return alert("Select at least one category.");
+    
+    const deck = [];
+    const usedPartNames = new Set();
+  
+    // Helper to pick a unique part
+    const pickUnique = (list) => {
+      if (!list || list.length === 0) return null;
+      
+      if (allowRepeats) return list[Math.floor(Math.random() * list.length)];
+  
+      // Filter out parts already in the deck
+      const available = list.filter(name => !usedPartNames.has(name));
+      
+      // If no unique parts left in this pool, allow a repeat as a fallback
+      const selection = available.length > 0 
+        ? available[Math.floor(Math.random() * available.length)] 
+        : list[Math.floor(Math.random() * list.length)];
+      
+      usedPartNames.add(selection);
+      return selection;
+    };
+  
+    for (let i = 0; i < 3; i++) {
+      const chosenCat = activeCats[Math.floor(Math.random() * activeCats.length)];
+      let combo = { system: chosenCat, parts: [] };
+  
+      // 1. Blade Selection
+      if (chosenCat === 'CX') {
+        combo.parts.push({ type: 'Lock Chip', name: pickUnique(getBladeParts('CX', 'Lock Chip')) });
+        combo.parts.push({ type: 'Main Blade', name: pickUnique(getBladeParts('CX', 'Main Blade')) });
+        combo.parts.push({ type: 'Assist Blade', name: pickUnique(getBladeParts('CX', 'Assist Blade')) });
+      } else if (chosenCat === 'CX-Expand') {
+        combo.parts.push({ type: 'Lock Chip', name: pickUnique(getBladeParts('CX', 'Lock Chip')) });
+        combo.parts.push({ type: 'Metal Blade', name: pickUnique(getBladeParts('CX-Expand', 'Metal Blade')) });
+        combo.parts.push({ type: 'Over Blade', name: pickUnique(getBladeParts('CX-Expand', 'Over Blade')) });
+        combo.parts.push({ type: 'Assist Blade', name: pickUnique(getBladeParts('CX', 'Assist Blade')) });
+      } else {
+        combo.parts.push({ type: 'Blade', name: pickUnique(getBladeParts(chosenCat, 'Main Blade')) });
+      }
+  
+      // 2. Ratchet & Bit Selection
+      if (chosenCat === 'UX-Expand') {
+        combo.parts.push({ type: 'Bit', name: pickUnique(getGeneralParts('Bits')) });
+      } else {
+        const integrated = getGeneralParts('Integrated-Bit');
+        const useIntegrated = integrated.length > 0 && Math.random() < 0.1;
+  
+        if (useIntegrated) {
+          combo.parts.push({ type: 'Integrated-Bit', name: pickUnique(integrated) });
+        } else {
+          combo.parts.push({ type: 'Ratchet', name: pickUnique(getGeneralParts('Ratchets')) });
+          combo.parts.push({ type: 'Bit', name: pickUnique(getGeneralParts('Bits')) });
+        }
+      }
+      deck.push(combo);
+    }
+    setDeckResult(deck);
+    setResult(null); // Clear single result if showing deck
   };
 
   return (
@@ -215,9 +281,27 @@ export function BladeRandomizer({ onBack }) {
         ))}
       </div>
 
-      <button onClick={generateRandom} style={primaryBtn} disabled={loading}>
-        {loading ? 'Fetching Parts...' : '🎲 Generate Random Combo'}
-      </button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={generateRandom} style={primaryBtn} disabled={loading}>
+            🎲 Random Single
+          </button>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <button onClick={generate3on3} style={deckBtn} disabled={loading}>
+              🎴 Build 3on3 Deck
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+              <input 
+                type="checkbox" 
+                id="repeatToggle" 
+                checked={allowRepeats} 
+                onChange={(e) => setAllowRepeats(e.target.checked)} 
+              />
+              <label htmlFor="repeatToggle" style={{ fontSize: '0.85rem' }}>Allow repeated parts</label>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {result && (
         <div style={resultContainer}>
@@ -229,6 +313,21 @@ export function BladeRandomizer({ onBack }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {deckResult && (
+        <div style={deckGrid}>
+          {deckResult.map((bey, idx) => (
+            <div key={idx} style={deckCard}>
+              <div style={resultBadge}>Slot {idx + 1}: {bey.system}</div>
+              {bey.parts.map((p, pi) => (
+                <div key={pi} style={{ fontSize: '0.9rem', marginBottom: '4px', color: getPartColor(p.type) }}>
+                  <span style={partType}>{p.type}:</span> {p.name}
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -254,6 +353,31 @@ const resultBadge = { background: '#3b82f6', color: 'white', display: 'inline-bl
 const resultList = { display: 'flex', flexDirection: 'column', gap: '10px' };
 const resultItem = { fontSize: '1.2rem', fontWeight: 'bold' };
 const partType = { color: '#64748b', fontSize: '0.8rem', marginRight: '10px', textTransform: 'uppercase' };
+const deckGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+  gap: '15px',
+  marginTop: '30px'
+};
+
+const deckCard = {
+  background: '#1e293b',
+  padding: '15px',
+  borderRadius: '10px',
+  border: '1px solid #475569'
+};
+
+const deckBtn = {
+  background: '#8b5cf6', // Purple color for Deck building
+  color: 'white',
+  padding: '12px',
+  borderRadius: '8px',
+  border: 'none',
+  fontWeight: 'bold',
+  cursor: 'pointer',
+  flex: 1
+};
+
 
 // --- VIEW: SCOREBOARD (HYBRID MODE) ---
 function ScoreboardView({ setView, activeMatch, event_id }) {
