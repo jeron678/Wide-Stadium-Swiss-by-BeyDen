@@ -368,19 +368,22 @@ export function BladeRandomizer({ onBack }) {
     const usedRatchets = new Set();
     const usedBits = new Set();
     const pickUnique = (list, set) => {
-      if (!list || list.length === 0) return null;
-      
-      // Safety check: if set is undefined, treat it as a normal pick
-      const available = (set && typeof set.has === 'function') 
-        ? list.filter(p => !set.has(p)) 
-        : list;
+    if (!list || list.length === 0) return null;
 
-      if (available.length === 0) return null;
-      
-      const selection = pick(available);
-      if (selection && set) set.add(selection);
-      return selection;
-    };
+    if (allowRepeats) {
+      return pick(list);
+    }
+
+    const available = list.filter(p => !set.has(p));
+
+    if (available.length === 0) {
+      return null; // IMPORTANT: do NOT fallback here
+    }
+
+    const selection = pick(available);
+    set.add(selection);
+    return selection;
+  };
 
     for (let i = 0; i < 3; i++) {
       const cat = activeCats[Math.floor(Math.random() * activeCats.length)];
@@ -396,7 +399,7 @@ export function BladeRandomizer({ onBack }) {
         bey.parts.push({ type: 'Over Blade', name: pickUnique(getBladeParts('CX-Expand', 'Over Blade'), usedBlades) });
         bey.parts.push({ type: 'Assist Blade', name: pickUnique(getBladeParts('CX', 'Assist Blade'), usedBlades) });
       } else {
-        bey.parts.push({ type: 'Blade', name: pickUnique(getBladeParts(cat, 'Main Blade')) });
+        bey.parts.push({ type: 'Blade', name: pickUnique(getBladeParts(cat, 'Main Blade'), usedBlades) });
       }
 
       // Hardware Logic Fix
@@ -421,10 +424,16 @@ export function BladeRandomizer({ onBack }) {
         if (!partSelected) {
           const bitName = pickUnique(bitsList, usedBits);
           const ratchetName = pickUnique(getGeneralParts('Ratchets'), usedRatchets);
+
+          // If we can't find unique parts → FAIL EARLY
+          if (!bitName || !ratchetName) {
+            alert("Not enough unique parts to generate a full 3on3 deck without repeats.");
+            return;
+          }
+
+          bey.parts.push({ type: 'Ratchet', name: ratchetName });
+          bey.parts.push({ type: 'Bit', name: bitName });
           
-          // Final Fallback: If absolutely no unique bits left in either list, allow a repeat
-          bey.parts.push({ type: 'Ratchet', name: ratchetName || pick(getGeneralParts('Ratchets')) });
-          bey.parts.push({ type: 'Bit', name: bitName || pick(bitsList) });
         }
       }
       deck.push(bey);
