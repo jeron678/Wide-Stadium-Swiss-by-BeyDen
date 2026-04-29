@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
 const CATEGORIES = ['BX', 'UX', 'BX-00', 'BX-Expand', 'UX-Expand', 'Collab', 'CX', 'CX-Expand'];
+const GENERAL_GROUPS = ['Ratchets', 'Bits', 'Integrated-Bit'];
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTuOYycxCrAi5gLW-6B0Cx-59cPNNg8_6RoBYEWqh80fPHqBElnc5Y79sAt5VT1vraX812rRuTZunHo/pub?output=csv";
 
 // --- HELPER: BUCHHOLZ CALCULATION ---
@@ -106,13 +107,48 @@ export default function App() {
 
 export function BladeRandomizer({ onBack }) {
   const [dataMatrix, setDataMatrix] = useState([]);
-  const [filters, setFilters] = useState(
+  const [itemGroups, setItemGroups] = useState([]);
+  const [selectedItems, setSelectedItems] = useState({});
+  const [categoryFilters, setCategoryFilters] = useState(
     CATEGORIES.reduce((acc, cat) => ({ ...acc, [cat]: true }), {})
   );
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState({});
+  const [expandedSubgroups, setExpandedSubgroups] = useState({});
   const [result, setResult] = useState(null);
   const [deckResult, setDeckResult] = useState(null);
   const [allowRepeats, setAllowRepeats] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const itemKey = (category, subCategory, item) => `${category}||${subCategory}||${item}`;
+  const isItemSelected = (key) => selectedItems[key] ?? true;
+  const shouldShowGroup = (group) => {
+    if (categoryFilters[group.category]) return true;
+    if (group.category === 'CX' && ['Lock Chip', 'Assist Blade'].includes(group.subCategory) && categoryFilters['CX-Expand']) return true;
+    return GENERAL_GROUPS.includes(group.category);
+  };
+
+  const visibleGroups = itemGroups.filter(shouldShowGroup);
+  const totalItemCount = visibleGroups.reduce((sum, group) => sum + group.items.length, 0);
+  const selectedItemCount = visibleGroups.reduce((sum, group) => {
+    return sum + group.items.filter(item => isItemSelected(itemKey(group.category, group.subCategory, item))).length;
+  }, 0);
+  const toggleItem = (category, subCategory, item) => {
+    const key = itemKey(category, subCategory, item);
+    setSelectedItems(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+  const toggleCategoryFilter = (category) => setCategoryFilters(prev => ({ ...prev, [category]: !prev[category] }));
+  const selectAllItems = () => setSelectedItems(itemGroups.reduce((acc, group) => {
+    group.items.forEach(item => acc[itemKey(group.category, group.subCategory, item)] = true);
+    return acc;
+  }, {}));
+  const clearAllItems = () => setSelectedItems(itemGroups.reduce((acc, group) => {
+    group.items.forEach(item => acc[itemKey(group.category, group.subCategory, item)] = false);
+    return acc;
+  }, {}));
+  const categoryHasSelectedItems = (cat) => categoryFilters[cat] && itemGroups.some(group => group.category === cat && group.items.some(item => isItemSelected(itemKey(group.category, group.subCategory, item))));
+  const toggleCategoryExpansion = (category) => setExpandedCategories(prev => ({ ...prev, [category]: !prev[category] }));
+  const toggleSubgroupExpansion = (groupKey) => setExpandedSubgroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
 
   useEffect(() => {
     fetch(SHEET_URL)
@@ -120,12 +156,68 @@ export function BladeRandomizer({ onBack }) {
       .then(csv => {
         const rows = csv.split('\n').map(row => row.split(',').map(cell => cell.trim()));
         setDataMatrix(rows);
+
+        const groups = buildItemGroups(rows);
+        setItemGroups(groups);
+        setSelectedItems(groups.reduce((acc, group) => {
+          group.items.forEach(item => acc[itemKey(group.category, group.subCategory, item)] = true);
+          return acc;
+        }, {}));
+
         setLoading(false);
       });
   }, []);
 
-  // Helper to get parts from the BLADE section (Rows 2 & 3 headers)
+  const visibleCategories = Array.from(new Set(visibleGroups.map(group => group.category)));
+  const categoryGroups = visibleCategories.map(category => ({
+    category,
+    subgroups: visibleGroups.filter(group => group.category === category)
+  }));
+
+  const buildItemGroups = (matrix) => {
+    const groups = {};
+    const numCols = matrix[0]?.length || 0;
+
+    for (let col = 0; col < numCols; col++) {
+      const category = matrix[1]?.[col];
+      const subCategory = matrix[2]?.[col];
+      if (category && subCategory) {
+        const key = `${category}||${subCategory}`;
+        if (!groups[key]) groups[key] = { category, subCategory, items: [] };
+        for (let row = 3; row < matrix.length; row++) {
+          const partName = matrix[row]?.[col];
+          if (partName && partName !== "") groups[key].items.push(partName);
+        }
+      }
+    }
+
+    const generalHeaders = ['Ratchets', 'Bits', 'Integrated-Bit'];
+    for (const headerName of generalHeaders) {
+      for (let col = 0; col < numCols; col++) {
+        if (matrix[0]?.[col] === headerName) {
+          const key = `${headerName}||`;
+          if (!groups[key]) groups[key] = { category: headerName, subCategory: '', items: [] };
+          for (let row = 1; row < matrix.length; row++) {
+            const partName = matrix[row]?.[col];
+            if (partName && partName !== "") groups[key].items.push(partName);
+          }
+        }
+      }
+    }
+
+    return Object.values(groups).map(group => ({
+      ...group,
+      items: Array.from(new Set(group.items))
+    }));
+  };
+
+  const isBladePartGroupVisible = (cat, subCat) => {
+    if (categoryFilters[cat]) return true;
+    return cat === 'CX' && ['Lock Chip', 'Assist Blade'].includes(subCat) && categoryFilters['CX-Expand'];
+  };
+
   const getBladeParts = (cat, subCat) => {
+    if (!isBladePartGroupVisible(cat, subCat)) return [];
     const parts = [];
     const numCols = dataMatrix[0]?.length || 0;
     for (let col = 0; col < numCols; col++) {
@@ -134,14 +226,16 @@ export function BladeRandomizer({ onBack }) {
       if (rowCat === cat && rowSubCat === subCat) {
         for (let row = 3; row < dataMatrix.length; row++) {
           const partName = dataMatrix[row]?.[col];
-          if (partName && partName !== "") parts.push(partName);
+          if (partName && partName !== "") {
+            const key = itemKey(cat, subCat, partName);
+            if (isItemSelected(key)) parts.push(partName);
+          }
         }
       }
     }
-    return parts;
+    return Array.from(new Set(parts));
   };
 
-  // Helper to get parts from RATCHET/BIT sections (Row 1 header)
   const getGeneralParts = (headerName) => {
     const parts = [];
     const numCols = dataMatrix[0]?.length || 0;
@@ -149,34 +243,55 @@ export function BladeRandomizer({ onBack }) {
       if (dataMatrix[0]?.[col] === headerName) {
         for (let row = 1; row < dataMatrix.length; row++) {
           const partName = dataMatrix[row]?.[col];
-          if (partName && partName !== "") parts.push(partName);
+          if (partName && partName !== "") {
+            const key = itemKey(headerName, '', partName);
+            if (isItemSelected(key)) parts.push(partName);
+          }
         }
       }
     }
-    return parts;
+    return Array.from(new Set(parts));
   };
 
   const pick = (list) => (list && list.length > 0) ? list[Math.floor(Math.random() * list.length)] : null;
+  const getRandomFrom = (list, label) => {
+    if (!list || list.length === 0) {
+      alert(`No selected items available for ${label}. Please update the item selector.`);
+      return null;
+    }
+    return pick(list);
+  };
 
   const generateRandom = () => {
-    const activeCats = CATEGORIES.filter(cat => filters[cat]);
-    if (activeCats.length === 0) return alert("Select at least one category.");
+    const activeCats = CATEGORIES.filter(categoryHasSelectedItems);
+    if (activeCats.length === 0) return alert("Select at least one item in each category through the item selector.");
 
     const chosenCat = activeCats[Math.floor(Math.random() * activeCats.length)];
     let combo = [];
 
     // 1. SELECT BLADE COMPONENTS
     if (chosenCat === 'CX') {
-      combo.push({ type: 'Lock Chip', name: pick(getBladeParts('CX', 'Lock Chip')) });
-      combo.push({ type: 'Main Blade', name: pick(getBladeParts('CX', 'Main Blade')) });
-      combo.push({ type: 'Assist Blade', name: pick(getBladeParts('CX', 'Assist Blade')) });
+      const lockChip = getRandomFrom(getBladeParts('CX', 'Lock Chip'), 'CX Lock Chip');
+      const mainBlade = getRandomFrom(getBladeParts('CX', 'Main Blade'), 'CX Main Blade');
+      const assistBlade = getRandomFrom(getBladeParts('CX', 'Assist Blade'), 'CX Assist Blade');
+      if (!lockChip || !mainBlade || !assistBlade) return;
+      combo.push({ type: 'Lock Chip', name: lockChip });
+      combo.push({ type: 'Main Blade', name: mainBlade });
+      combo.push({ type: 'Assist Blade', name: assistBlade });
     } else if (chosenCat === 'CX-Expand') {
-      combo.push({ type: 'Lock Chip', name: pick(getBladeParts('CX', 'Lock Chip')) });
-      combo.push({ type: 'Metal Blade', name: pick(getBladeParts('CX-Expand', 'Metal Blade')) });
-      combo.push({ type: 'Over Blade', name: pick(getBladeParts('CX-Expand', 'Over Blade')) });
-      combo.push({ type: 'Assist Blade', name: pick(getBladeParts('CX', 'Assist Blade')) });
+      const lockChip = getRandomFrom(getBladeParts('CX', 'Lock Chip'), 'CX Lock Chip');
+      const metalBlade = getRandomFrom(getBladeParts('CX-Expand', 'Metal Blade'), 'CX-Expand Metal Blade');
+      const overBlade = getRandomFrom(getBladeParts('CX-Expand', 'Over Blade'), 'CX-Expand Over Blade');
+      const assistBlade = getRandomFrom(getBladeParts('CX', 'Assist Blade'), 'CX Assist Blade');
+      if (!lockChip || !metalBlade || !overBlade || !assistBlade) return;
+      combo.push({ type: 'Lock Chip', name: lockChip });
+      combo.push({ type: 'Metal Blade', name: metalBlade });
+      combo.push({ type: 'Over Blade', name: overBlade });
+      combo.push({ type: 'Assist Blade', name: assistBlade });
     } else {
-      combo.push({ type: 'Blade', name: pick(getBladeParts(chosenCat, 'Main Blade')) });
+      const blade = getRandomFrom(getBladeParts(chosenCat, 'Main Blade'), `${chosenCat} Main Blade`);
+      if (!blade) return;
+      combo.push({ type: 'Blade', name: blade });
     }
 
     // 2. SELECT RATCHET & BIT (Compatibility Logic)
@@ -186,28 +301,33 @@ export function BladeRandomizer({ onBack }) {
 
     if (chosenCat === 'UX-Expand') {
       // RULE: UX-Expand can only choose ONE from bits (No Ratchet)
-      combo.push({ type: 'Bit', name: pick(allBits) });
+      const bit = getRandomFrom(allBits, 'Bits');
+      if (!bit) return;
+      combo.push({ type: 'Bit', name: bit });
     } else {
       // Logic: Roll to see if we use an Integrated-Bit (~15% chance if exists)
       const useIntegrated = allIntegrated.length > 0 && Math.random() < 0.15;
 
       if (useIntegrated) {
-        // RULE: If Integrated-Bit is selected, it cannot have a ratchet
-        combo.push({ type: 'Integrated-Bit', name: pick(allIntegrated) });
+        const integrated = getRandomFrom(allIntegrated, 'Integrated-Bit');
+        if (!integrated) return;
+        combo.push({ type: 'Integrated-Bit', name: integrated });
       } else {
-        // Standard Setup: 1 Ratchet + 1 Bit
-        combo.push({ type: 'Ratchet', name: pick(allRatchets) });
-        combo.push({ type: 'Bit', name: pick(allBits) });
+        const ratchet = getRandomFrom(allRatchets, 'Ratchets');
+        const bit = getRandomFrom(allBits, 'Bits');
+        if (!ratchet || !bit) return;
+        combo.push({ type: 'Ratchet', name: ratchet });
+        combo.push({ type: 'Bit', name: bit });
       }
     }
 
-    setResult({ category: chosenCat, parts: combo.filter(p => p.name) });
+    setResult({ category: chosenCat, parts: combo });
     setDeckResult(null);
   };
 
   const generate3on3 = () => {
-    const activeCats = CATEGORIES.filter(cat => filters[cat]);
-    if (activeCats.length === 0) return alert("Select at least one category.");
+    const activeCats = CATEGORIES.filter(categoryHasSelectedItems);
+    if (activeCats.length === 0) return alert("Select at least one item in each category through the item selector.");
     
     const deck = [];
     const usedPartNames = new Set();
@@ -262,6 +382,9 @@ export function BladeRandomizer({ onBack }) {
           combo.parts.push({ type: 'Bit', name: pickUnique(getGeneralParts('Bits')) });
         }
       }
+      if (combo.parts.some(p => !p.name)) {
+        return alert('Please select at least one item for each required part type in the item selector.');
+      }
       deck.push(combo);
     }
     setDeckResult(deck);
@@ -273,15 +396,93 @@ export function BladeRandomizer({ onBack }) {
       <button onClick={onBack} style={backBtn}>← Back</button>
       <h2 style={sectionTitle}>Beyblade Combo Randomizer</h2>
       
-      <div style={filterGrid}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '10px', marginTop: '20px' }}>
         {CATEGORIES.map(cat => (
           <label key={cat} style={checkboxLabel}>
-            <input type="checkbox" checked={filters[cat]} onChange={() => setFilters({...filters, [cat]: !filters[cat]})} /> {cat}
+            <input
+              type="checkbox"
+              checked={categoryFilters[cat]}
+              onChange={() => toggleCategoryFilter(cat)}
+            />
+            {cat}
           </label>
         ))}
       </div>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+        <button onClick={() => setShowFilterModal(true)} style={secondaryBtn}>
+          🔧 Choose Items ({selectedItemCount}/{totalItemCount})
+        </button>
+
+        {showFilterModal && (
+          <div style={modalOverlay} onClick={() => setShowFilterModal(false)}>
+            <div style={modalDialog} onClick={(e) => e.stopPropagation()}>
+              <div style={modalHeader}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Item Selector</h3>
+                  <p style={{ margin: '6px 0 0', color: '#cbd5e1', fontSize: '0.95rem' }}>
+                    Select individual items under each system for the randomizer. All items start selected by default.
+                  </p>
+                </div>
+                <button onClick={() => setShowFilterModal(false)} style={modalCloseBtn}>✕</button>
+              </div>
+
+                      {itemGroups.length === 0 ? (
+                <div style={filterTableCell}>Loading items...</div>
+              ) : categoryGroups.map(({ category, subgroups }) => {
+                const categoryKey = category;
+                const categoryOpen = expandedCategories[categoryKey] ?? false;
+                return (
+                  <div key={categoryKey} style={groupWrapper}>
+                    <button type="button" onClick={() => toggleCategoryExpansion(categoryKey)} style={groupHeader}>
+                      <span>{category}</span>
+                      <span>{categoryOpen ? '▾' : '▸'}</span>
+                    </button>
+                    {categoryOpen && (
+                      <div style={subgroupList}>
+                        {subgroups.map(group => {
+                          const subgroupKey = `${group.category}||${group.subCategory}`;
+                          const subgroupOpen = expandedSubgroups[subgroupKey] ?? false;
+                          return (
+                            <div key={subgroupKey} style={subgroupWrapper}>
+                              <button type="button" onClick={() => toggleSubgroupExpansion(subgroupKey)} style={subgroupHeader}>
+                                <span>{group.subCategory || 'General'}</span>
+                                <span>{subgroupOpen ? '▾' : '▸'}</span>
+                              </button>
+                              {subgroupOpen && (
+                                <div style={itemList}>
+                                  {group.items.map(item => {
+                                    const key = itemKey(group.category, group.subCategory, item);
+                                    return (
+                                      <label key={key} style={checkboxLabel}> 
+                                        <input
+                                          type="checkbox"
+                                          checked={isItemSelected(key)}
+                                          onChange={() => toggleItem(group.category, group.subCategory, item)}
+                                        />
+                                        <span style={{ marginLeft: '8px' }}>{item}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div style={modalActions}>
+                <button onClick={selectAllItems} style={modalActionBtn}>Select All</button>
+                <button onClick={clearAllItems} style={modalActionBtn}>Clear All</button>
+                <button onClick={() => setShowFilterModal(false)} style={primaryBtn}>Done</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={generateRandom} style={primaryBtn} disabled={loading}>
             🎲 Random Single
@@ -348,6 +549,106 @@ const filterGrid = {
   marginBottom: '20px' 
 };
 const checkboxLabel = { fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' };
+const groupWrapper = { borderBottom: '1px solid #334155', paddingBottom: '12px', marginBottom: '12px' };
+const groupHeader = {
+  width: '100%',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  background: '#0f172a',
+  color: '#e2e8f0',
+  border: '1px solid #334155',
+  borderRadius: '12px',
+  padding: '12px 14px',
+  cursor: 'pointer',
+  textAlign: 'left'
+};
+const subgroupWrapper = { marginTop: '10px', paddingLeft: '12px' };
+const subgroupHeader = {
+  width: '100%',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  background: '#111827',
+  color: '#cbd5e1',
+  border: '1px solid #334155',
+  borderRadius: '12px',
+  padding: '10px 14px',
+  cursor: 'pointer',
+  textAlign: 'left'
+};
+const subgroupList = { paddingLeft: '6px', marginTop: '8px' };
+const itemList = { display: 'grid', gap: '8px', padding: '10px 14px', background: '#0f172a', borderRadius: '12px' };
+const modalOverlay = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(15, 23, 42, 0.75)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+  padding: '20px'
+};
+const modalDialog = {
+  width: 'min(620px, 100%)',
+  maxHeight: '90vh',
+  overflowY: 'auto',
+  background: '#111827',
+  border: '1px solid #374151',
+  borderRadius: '16px',
+  padding: '24px',
+  boxShadow: '0 18px 60px rgba(15, 23, 42, 0.55)'
+};
+const modalHeader = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: '16px',
+  marginBottom: '18px'
+};
+const modalCloseBtn = {
+  border: 'none',
+  background: '#475569',
+  color: 'white',
+  width: '32px',
+  height: '32px',
+  borderRadius: '10px',
+  cursor: 'pointer'
+};
+const filterTable = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  marginBottom: '20px'
+};
+const filterTableHeader = {
+  textAlign: 'left',
+  padding: '12px 14px',
+  fontSize: '0.95rem',
+  color: '#cbd5e1',
+  borderBottom: '1px solid #334155'
+};
+const filterTableRow = {
+  borderBottom: '1px solid #334155'
+};
+const filterTableCell = {
+  padding: '12px 14px',
+  color: '#e2e8f0',
+  fontSize: '0.95rem'
+};
+const modalActions = {
+  display: 'flex',
+  gap: '10px',
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end'
+};
+const modalActionBtn = {
+  background: '#0f172a',
+  color: '#f8fafc',
+  border: '1px solid #475569',
+  padding: '10px 16px',
+  borderRadius: '10px',
+  cursor: 'pointer'
+};
 const resultContainer = { marginTop: '30px', padding: '20px', background: '#0f172a', borderRadius: '12px', border: '1px solid #3b82f6', textAlign: 'center' };
 const resultBadge = { background: '#3b82f6', color: 'white', display: 'inline-block', padding: '4px 12px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: '800', marginBottom: '15px' };
 const resultList = { display: 'flex', flexDirection: 'column', gap: '10px' };
