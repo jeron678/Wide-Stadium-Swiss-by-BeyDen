@@ -80,6 +80,7 @@ export default function App() {
 
   // REALTIME SUBSCRIPTION: Listen for changes at the App level
   useEffect(() => {
+    document.title = "Beyblade X SG"
     if (!currentEvent?.event_id) return;
 
     const channel = supabase.channel(`sync-${currentEvent.event_id}`)
@@ -371,6 +372,25 @@ export function BladeRandomizer({ onBack }) {
     );
   };
 
+  const categoryCanGenerate = (cat) => {
+    if (!categoryHasSelectedItems(cat)) return false;
+
+    // Check if the category has the required blade parts for generation
+    if (cat === 'CX') {
+      return getBladeParts('CX', 'Lock Chip').length > 0 &&
+             getBladeParts('CX', 'Main Blade').length > 0 &&
+             getBladeParts('CX', 'Assist Blade').length > 0;
+    } else if (cat === 'CX-Expand') {
+      return getBladeParts('CX', 'Lock Chip').length > 0 &&
+             getBladeParts('CX-Expand', 'Metal Blade').length > 0 &&
+             getBladeParts('CX-Expand', 'Over Blade').length > 0 &&
+             getBladeParts('CX', 'Assist Blade').length > 0;
+    } else {
+      // For all other systems (BX, UX, UX-Expand, etc.), need Main Blade
+      return getBladeParts(cat, 'Main Blade').length > 0;
+    }
+  };
+
   const toggleCategoryExpansion = (category) => setExpandedCategories(prev => ({ ...prev, [category]: !prev[category] }));
   const toggleSubgroupExpansion = (groupKey) => setExpandedSubgroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
 
@@ -421,11 +441,38 @@ export function BladeRandomizer({ onBack }) {
 
   const pick = (list) => (list && list.length > 0) ? list[Math.floor(Math.random() * list.length)] : null;
 
+  const getMissingBladePartMessage = (cat) => {
+    if (cat === 'CX') {
+      const missing = [];
+      if (getBladeParts('CX', 'Lock Chip').length === 0) missing.push('Lock Chip');
+      if (getBladeParts('CX', 'Main Blade').length === 0) missing.push('Main Blade');
+      if (getBladeParts('CX', 'Assist Blade').length === 0) missing.push('Assist Blade');
+      return missing.length > 0 ? `Select ${missing.join(', ')} for CX` : null;
+    } else if (cat === 'CX-Expand') {
+      const missing = [];
+      if (getBladeParts('CX', 'Lock Chip').length === 0) missing.push('Lock Chip');
+      if (getBladeParts('CX-Expand', 'Metal Blade').length === 0) missing.push('Metal Blade');
+      if (getBladeParts('CX-Expand', 'Over Blade').length === 0) missing.push('Over Blade');
+      if (getBladeParts('CX', 'Assist Blade').length === 0) missing.push('Assist Blade');
+      return missing.length > 0 ? `Select ${missing.join(', ')} for CX-Expand` : null;
+    } else {
+      if (getBladeParts(cat, 'Main Blade').length === 0) {
+        return `Select Main Blade parts for ${cat}`;
+      }
+    }
+    return null;
+  };
+
   const generateRandom = () => {
-    const activeCats = CATEGORIES.filter(categoryHasSelectedItems);
-    if (activeCats.length === 0) return alert("Select at least one system with selected items.");
+    const activeCats = CATEGORIES.filter(categoryCanGenerate);
+    if (activeCats.length === 0) return alert("Select at least one system with selected blade parts.");
 
     const chosenCat = activeCats[Math.floor(Math.random() * activeCats.length)];
+    
+    // Double-check blade parts are available
+    const missingMessage = getMissingBladePartMessage(chosenCat);
+    if (missingMessage) return alert(missingMessage);
+    
     let combo = [];
 
     if (chosenCat === 'CX') {
@@ -463,8 +510,8 @@ export function BladeRandomizer({ onBack }) {
   };
 
   const generate3on3 = () => {
-    const activeCats = CATEGORIES.filter(categoryHasSelectedItems);
-    if (activeCats.length === 0) return alert("Select systems in the filter.");
+    const activeCats = CATEGORIES.filter(categoryCanGenerate);
+    if (activeCats.length === 0) return alert("Select systems with blade parts in the filter.");
     const deck = [];
     const usedBlades = new Set();
     const usedRatchets = new Set();
@@ -489,6 +536,13 @@ export function BladeRandomizer({ onBack }) {
 
     for (let i = 0; i < 3; i++) {
       const cat = activeCats[Math.floor(Math.random() * activeCats.length)];
+      
+      // Verify blade parts are still available
+      const missingMessage = getMissingBladePartMessage(cat);
+      if (missingMessage) {
+        return alert(`Slot ${i + 1}: ${missingMessage}`);
+      }
+      
       let bey = { system: cat, parts: [] };
 
       if (cat === 'CX') {
@@ -591,7 +645,7 @@ export function BladeRandomizer({ onBack }) {
                       </button>
                       {categoryOpen && (
                         <div style={subgroupList}>
-                          {subgroups.map(group => {
+                          {subgroups.filter(group => group.items.length > 0).map(group => {
                             const subgroupKey = `${group.category}||${group.subCategory}`;
                             const subgroupOpen = expandedSubgroups[subgroupKey] ?? false;
                             
@@ -975,6 +1029,17 @@ function CreateEventView({ setView, loadEvent }) {
   const [name, setName] = useState('');
   const [pastedNames, setPastedNames] = useState('');
   const [rounds, setRounds] = useState(3);
+  const [format, setFormat] = useState('1v1v1-swiss');
+
+  const calculateSingleEliminationRounds = (playerCount) => {
+    let rounds = 0;
+    let players = playerCount;
+    while (players > 1) {
+      players = Math.ceil(players / 3);
+      rounds++;
+    }
+    return rounds;
+  };
 
   const handleCreate = async () => {
     let playerList = pastedNames.split('\n')
@@ -1004,8 +1069,9 @@ function CreateEventView({ setView, loadEvent }) {
       players: shuffled,
       matches: [initialMatches], 
       current_round: 1,
-      max_rounds: parseInt(rounds),
-      status: 'active'
+      max_rounds: format === '1v1v1-single-elimination' ? calculateSingleEliminationRounds(shuffled.length) : parseInt(rounds),
+      status: 'active',
+      format: format
     }]).select();
 
     if (!error && data) loadEvent(data[0]);
@@ -1020,9 +1086,18 @@ function CreateEventView({ setView, loadEvent }) {
         <input placeholder="e.g. League Round 1" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
       </div>
       <div style={formGroup}>
-        <label style={label}>Total Rounds</label>
-        <input type="number" value={rounds} onChange={e => setRounds(e.target.value)} style={smallInput} />
+        <label style={label}>Tournament Format</label>
+        <select value={format} onChange={e => setFormat(e.target.value)} style={inputStyle}>
+          <option value="1v1v1-swiss">1v1v1 Swiss</option>
+          <option value="1v1v1-single-elimination">1v1v1 Single Elimination</option>
+        </select>
       </div>
+      {format !== '1v1v1-single-elimination' && (
+        <div style={formGroup}>
+          <label style={label}>Total Rounds</label>
+          <input type="number" value={rounds} onChange={e => setRounds(e.target.value)} style={smallInput} />
+        </div>
+      )}
       <div style={formGroup}>
         <label style={label}>Player Roster (One name per line)</label>
         <textarea placeholder="Player 1\nPlayer 2..." value={pastedNames} onChange={e => setPastedNames(e.target.value)} rows={8} style={textArea} />
@@ -1043,7 +1118,9 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
           <div key={e.event_id} style={historyCard}>
             <div>
               <div style={historyName}>{e.name}</div>
-              <div style={historyMeta}>{new Date(e.created_at).toLocaleDateString()} • {e.status.toUpperCase()}</div>
+              <div style={historyMeta}>
+                {new Date(e.created_at).toLocaleDateString()} • {e.status.toUpperCase()} • {e.format === '1v1v1-single-elimination' ? 'Single Elimination' : 'Swiss'}
+              </div>
             </div>
             <button onClick={() => loadEvent(e)} style={openBtn}>Open</button>
           </div>
@@ -1058,6 +1135,129 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
   // Logic simplified: Use 'event' directly from props. 
   // App component handles the Realtime syncing.
 
+  const [showEditPlayers, setShowEditPlayers] = useState(false);
+  const [editPlayerNames, setEditPlayerNames] = useState('');
+
+  // Initialize edit player names when component mounts or event changes
+  useEffect(() => {
+    setEditPlayerNames(event.players.map(p => p.name).join('\n'));
+  }, [event.players]);
+
+  // Check if any matches have started
+  const hasMatchesStarted = () => {
+    return event.matches.some(round => 
+      round.some(match => match.status !== 'pending')
+    );
+  };
+
+  const handleUpdatePlayers = async () => {
+    const matchesStarted = hasMatchesStarted();
+    
+    if (matchesStarted) {
+      // When matches have started, update individual player names
+      const newPlayerNames = editPlayerNames.split('\n')
+        .map(n => n.trim()).filter(n => n !== "");
+
+      if (newPlayerNames.length !== event.players.length) {
+        alert("Cannot change the number of players once matches have started.");
+        return;
+      }
+
+      // Update existing players with new names
+      const updatedPlayers = event.players.map((player, index) => ({
+        ...player,
+        name: newPlayerNames[index]
+      }));
+
+      const { error } = await supabase.from('events').update({
+        players: updatedPlayers
+      }).eq('event_id', event.event_id);
+
+      if (!error) {
+        setShowEditPlayers(false);
+        alert("Player names updated successfully!");
+      } else {
+        alert("Error updating players. Please try again.");
+      }
+      return;
+    }
+
+    // Original logic for when matches haven't started
+    const newPlayerNames = editPlayerNames.split('\n')
+      .map(n => n.trim()).filter(n => n !== "");
+
+    if (newPlayerNames.length === 0) {
+      alert("Please add at least one player.");
+      return;
+    }
+
+    const playerCountChanged = newPlayerNames.length !== event.players.length;
+
+    // Create new player objects, preserving existing data where possible
+    const existingPlayers = event.players.reduce((acc, p) => {
+      acc[p.name] = p;
+      return acc;
+    }, {});
+
+    const updatedPlayers = newPlayerNames.map(name => {
+      if (existingPlayers[name]) {
+        return existingPlayers[name]; // Keep existing player data
+      } else {
+        return {
+          name,
+          score: 0,
+          wins: 0,
+          opponents: [],
+          id: Math.random().toString(36).substr(2, 9),
+          eliminated: false
+        };
+      }
+    });
+
+    let updateData = { players: updatedPlayers };
+
+    // If player count changed, regenerate matches
+    if (playerCountChanged) {
+      const playerList = [...updatedPlayers];
+      
+      // Handle different formats
+      if (event.format === '1v1v1-single-elimination') {
+        // For single elimination, we don't need to regenerate matches here
+        // The bracket will be generated when nextRound is called
+        updateData.max_rounds = calculateSingleEliminationRounds(playerList.length);
+      } else {
+        // For Swiss format, regenerate matches
+        const remainder = playerList.length % 3;
+        if (remainder !== 0) {
+          const fillNeeded = 3 - remainder;
+          for (let i = 1; i <= fillNeeded; i++) {
+            playerList.push({ name: `Imposter ${i}`, score: 0, wins: 0, opponents: [], id: `imp-${i}-${Date.now()}` });
+          }
+        }
+
+        const shuffled = [...playerList].sort(() => Math.random() - 0.5);
+        const initialMatches = [];
+        for (let i = 0; i < shuffled.length; i += 3) {
+          initialMatches.push({ id: i, status: 'pending', members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
+        }
+
+        updateData.players = shuffled;
+        updateData.matches = [initialMatches];
+        updateData.current_round = 1;
+      }
+    }
+
+    // Update the event
+    const { error } = await supabase.from('events').update(updateData).eq('event_id', event.event_id);
+
+    if (!error) {
+      setShowEditPlayers(false);
+      alert(matchesStarted ? "Player names updated successfully!" : "Players and matches updated successfully!");
+    } else {
+      alert("Error updating players. Please try again.");
+    }
+  };
+
   const updateMaxRounds = async (newVal) => {
     const val = parseInt(newVal);
     if (isNaN(val) || val < event.current_round) return; 
@@ -1068,46 +1268,107 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
     const updatedPlayers = [...event.players];
     const currentRoundMatches = event.matches[event.current_round - 1];
 
-    currentRoundMatches.forEach(m => {
-      const highest = Math.max(...m.members.map(p => p.currentRoundScore));
-      m.members.forEach(member => {
-        const pIdx = updatedPlayers.findIndex(p => p.name === member.name);
-        if(pIdx !== -1) {
-          updatedPlayers[pIdx].score += (member.currentRoundScore || 0);
-          if (member.currentRoundScore === highest && highest > 0) updatedPlayers[pIdx].wins += 1;
-          const opps = m.members.filter(opp => opp.name !== member.name).map(opp => opp.name);
-          updatedPlayers[pIdx].opponents = [...(updatedPlayers[pIdx].opponents || []), ...opps];
-        }
+    // Check if this is Single Elimination format
+    if (event.format === '1v1v1-single-elimination') {
+      // Single Elimination Logic
+      currentRoundMatches.forEach(m => {
+        const highest = Math.max(...m.members.map(p => p.currentRoundScore));
+        m.members.forEach(member => {
+          const pIdx = updatedPlayers.findIndex(p => p.name === member.name);
+          if (pIdx !== -1) {
+            updatedPlayers[pIdx].wins = (updatedPlayers[pIdx].wins || 0);
+            updatedPlayers[pIdx].eliminated = updatedPlayers[pIdx].eliminated || false;
+            
+            // Winner advances, losers are eliminated
+            if (member.currentRoundScore === highest && highest > 0) {
+              updatedPlayers[pIdx].wins += 1;
+            } else {
+              updatedPlayers[pIdx].eliminated = true;
+            }
+          }
+        });
       });
-    });
 
-    if (event.current_round >= event.max_rounds) {
-      await supabase.from('events').update({ players: updatedPlayers, status: 'finished' }).eq('event_id', event.event_id);
-      return;
+      // Get active (non-eliminated) players
+      const activePlayers = updatedPlayers.filter(p => !p.eliminated);
+
+      // Check if tournament is over (1 or 0 active players remain)
+      if (activePlayers.length <= 1) {
+        await supabase.from('events').update({ 
+          players: updatedPlayers, 
+          status: 'finished' 
+        }).eq('event_id', event.event_id);
+        return;
+      }
+
+      // Create next round matches with active players only
+      const nextMatches = [];
+      const shuffled = [...activePlayers].sort(() => Math.random() - 0.5);
+      for (let i = 0; i < shuffled.length; i += 3) {
+        nextMatches.push({ 
+          id: i, 
+          status: 'pending', 
+          members: shuffled.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) 
+        });
+      }
+
+      await supabase.from('events').update({
+        players: updatedPlayers,
+        matches: [...event.matches, nextMatches], 
+        current_round: event.current_round + 1,
+        status: 'active'
+      }).eq('event_id', event.event_id);
+    } else {
+      // Swiss System Logic (original)
+      currentRoundMatches.forEach(m => {
+        const highest = Math.max(...m.members.map(p => p.currentRoundScore));
+        m.members.forEach(member => {
+          const pIdx = updatedPlayers.findIndex(p => p.name === member.name);
+          if(pIdx !== -1) {
+            updatedPlayers[pIdx].score += (member.currentRoundScore || 0);
+            if (member.currentRoundScore === highest && highest > 0) updatedPlayers[pIdx].wins += 1;
+            const opps = m.members.filter(opp => opp.name !== member.name).map(opp => opp.name);
+            updatedPlayers[pIdx].opponents = [...(updatedPlayers[pIdx].opponents || []), ...opps];
+          }
+        });
+      });
+
+      if (event.current_round >= event.max_rounds) {
+        await supabase.from('events').update({ players: updatedPlayers, status: 'finished' }).eq('event_id', event.event_id);
+        return;
+      }
+
+      const sorted = [...updatedPlayers].sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return calculateBuchholz(b, updatedPlayers) - calculateBuchholz(a, updatedPlayers);
+      });
+
+      const nextMatches = [];
+      for (let i = 0; i < sorted.length; i += 3) {
+        nextMatches.push({ id: i, status: 'pending', members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
+      }
+
+      await supabase.from('events').update({
+        players: updatedPlayers,
+        matches: [...event.matches, nextMatches], 
+        current_round: event.current_round + 1,
+        status: 'active'
+      }).eq('event_id', event.event_id);
     }
-
-    const sorted = [...updatedPlayers].sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.wins !== a.wins) return b.wins - a.wins;
-      return calculateBuchholz(b, updatedPlayers) - calculateBuchholz(a, updatedPlayers);
-    });
-
-    const nextMatches = [];
-    for (let i = 0; i < sorted.length; i += 3) {
-      nextMatches.push({ id: i, status: 'pending', members: sorted.slice(i, i + 3).map(p => ({ ...p, currentRoundScore: 0 })) });
-    }
-
-    await supabase.from('events').update({
-      players: updatedPlayers,
-      matches: [...event.matches, nextMatches], 
-      current_round: event.current_round + 1,
-      status: 'active'
-    }).eq('event_id', event.event_id);
   };
 
   const sortedPlayers = [...event.players].sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
+    if (event.format === '1v1v1-single-elimination') {
+      // Single Elimination: Active players first, then by wins
+      if ((b.eliminated || false) !== (a.eliminated || false)) {
+        return (a.eliminated || false) ? 1 : -1;
+      }
+      return (b.wins || 0) - (a.wins || 0);
+    }
+    // Swiss: Sort by wins, then score, then Buchholz
     if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.score !== a.score) return b.score - a.score;
     return calculateBuchholz(b, event.players) - calculateBuchholz(a, event.players);
   });
 
@@ -1120,11 +1381,22 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
           <div>
             <h2 style={headerTitle}>{event.name}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>ROUNDS:</span>
-              <input type="number" min={event.current_round} value={event.max_rounds} onChange={(e) => updateMaxRounds(e.target.value)} style={miniInput} />
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                {event.format === '1v1v1-single-elimination' ? 'ROUNDS:' : 'ROUNDS:'}
+              </span>
+              {event.format === '1v1v1-single-elimination' ? (
+                <span style={{ fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>
+                  {event.max_rounds} Rounds
+                </span>
+              ) : (
+                <input type="number" min={event.current_round} value={event.max_rounds} onChange={(e) => updateMaxRounds(e.target.value)} style={miniInput} />
+              )}
             </div>
           </div>
-          <button onClick={onBack} style={utilBtn}>Main Menu</button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
+            <button onClick={onBack} style={utilBtn}>Main Menu</button>
+          </div>
         </div>
       </div>
 
@@ -1190,7 +1462,9 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
             {rIdx + 1 === event.current_round && !isFinalized && (
               <div style={stickyButtonContainer}>
                 <button onClick={nextRound} style={roundActionBtn}>
-                  {event.current_round >= event.max_rounds ? "🏁 Finalize Standings" : "Confirm Round & Next Pairings"}
+                  {event.format === '1v1v1-single-elimination' 
+                    ? (event.players.filter(p => !p.eliminated).length <= 1 ? "🏆 Crown Champion" : "Confirm Round & Next Round")
+                    : (event.current_round >= event.max_rounds ? "🏁 Finalize Standings" : "Confirm Round & Next Pairings")}
                 </button>
               </div>
             )}
@@ -1217,33 +1491,120 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
         })}
 
         <div style={standingContainer}>
-          <h3 style={sectionTitle}>📊 Live Standings</h3>
+          <h3 style={sectionTitle}>
+            {event.format === '1v1v1-single-elimination' ? '🏆 Bracket Status' : '📊 Live Standings'}
+          </h3>
           <div style={tableWrapper}>
             <table style={standingsTable}>
               <thead>
                 <tr>
                   <th style={th}>Rank</th>
                   <th style={thLeft}>Player</th>
-                  <th style={thCenter}>Score</th>
-                  <th style={thCenter}>Wins</th>
-                  <th style={thCenter}>BH</th>
+                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>Score</th>}
+                  <th style={thCenter}>{event.format === '1v1v1-single-elimination' ? 'Wins' : 'Wins'}</th>
+                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>BH</th>}
                 </tr>
               </thead>
               <tbody>
-                {sortedPlayers.map((p, i) => (
-                  <tr key={i} style={tr}>
-                    <td style={tdRank}>#{i + 1}</td>
-                    <td style={tdName}>{p.name}</td>
-                    <td style={tdCenter}>{p.score}</td>
-                    <td style={tdCenter}>{p.wins}</td>
-                    <td style={tdBH}>{calculateBuchholz(p, event.players)}</td>
-                  </tr>
-                ))}
+                {sortedPlayers.map((p, i) => {
+                  const isEliminated = event.format === '1v1v1-single-elimination' && p.eliminated;
+                  const playerRowStyle = isEliminated 
+                    ? { ...tr, opacity: 0.5, textDecoration: 'line-through' }
+                    : tr;
+                  return (
+                    <tr key={i} style={playerRowStyle}>
+                      <td style={tdRank}>#{i + 1}</td>
+                      <td style={tdName}>
+                        {isEliminated ? '❌ ' : ''}{p.name}
+                      </td>
+                      {event.format !== '1v1v1-single-elimination' && <td style={tdCenter}>{p.score}</td>}
+                      <td style={tdCenter}>{p.wins || 0}</td>
+                      {event.format !== '1v1v1-single-elimination' && <td style={tdBH}>{calculateBuchholz(p, event.players)}</td>}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      {showEditPlayers && (
+        <div style={modalOverlay} onClick={() => setShowEditPlayers(false)}>
+          <div style={modalDialog} onClick={(e) => e.stopPropagation()}>
+            <div style={modalHeader}>
+              <div>
+                <h3 style={{ margin: 0 }}>Edit Players</h3>
+                <p style={{ margin: '6px 0 0', color: '#cbd5e1', fontSize: '0.85rem' }}>
+                  {hasMatchesStarted() 
+                    ? "Edit individual player names. Cannot change player count once matches have started." 
+                    : "Update the player roster. One name per line. Changing player count will reset matches."
+                  }
+                </p>
+              </div>
+              <button onClick={() => setShowEditPlayers(false)} style={modalCloseBtn}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              {hasMatchesStarted() ? (
+                // Show individual player cards when matches have started
+                <div style={{ display: 'grid', gap: '10px', maxHeight: '400px', overflowY: 'auto' }}>
+                  {event.players.map((player, index) => (
+                    <div key={player.id} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px',
+                      background: '#1e293b',
+                      borderRadius: '8px',
+                      border: '1px solid #334155'
+                    }}>
+                      <span style={{ fontSize: '0.9rem', color: '#f8fafc' }}>
+                        {index + 1}. {player.name}
+                      </span>
+                      <button 
+                        onClick={() => {
+                          const newName = prompt('Enter new name:', player.name);
+                          if (newName && newName.trim() !== player.name) {
+                            const updatedNames = editPlayerNames.split('\n');
+                            updatedNames[index] = newName.trim();
+                            setEditPlayerNames(updatedNames.join('\n'));
+                          }
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          background: '#3b82f6',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        ✏️ Edit
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // Show textarea when matches haven't started
+                <textarea
+                  placeholder="Player 1&#10;Player 2&#10;..."
+                  value={editPlayerNames}
+                  onChange={(e) => setEditPlayerNames(e.target.value)}
+                  rows={10}
+                  style={textArea}
+                />
+              )}
+            </div>
+
+            <div style={modalActions}>
+              <button onClick={() => setShowEditPlayers(false)} style={modalActionBtn}>Cancel</button>
+              <button onClick={handleUpdatePlayers} style={primaryBtn}>Update Players</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
