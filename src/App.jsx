@@ -1314,7 +1314,22 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
     }
   };
 
+  const renameEvent = async () => {
+    const newName = prompt('Enter new event name:', event.name);
+    if (!newName) return;
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === event.name) return;
+
+    const { error } = await supabase.from('events').update({ name: trimmed }).eq('event_id', event.event_id);
+    if (error) {
+      alert('Error renaming event. Please try again.');
+      return;
+    }
+    alert('Event name updated successfully!');
+  };
+
   const updateMaxRounds = async (newVal) => {
+    if (event.status === 'finished') return;
     const val = parseInt(newVal);
     if (isNaN(val) || val < event.current_round) return; 
     await supabase.from('events').update({ max_rounds: val }).eq('event_id', event.event_id);
@@ -1435,7 +1450,12 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
       <div style={stickyHeader}>
         <div style={headerContent}>
           <div>
-            <h2 style={headerTitle}>{event.name}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h2 style={headerTitle}>{event.name}</h2>
+              <button onClick={renameEvent} style={{ ...utilBtn, padding: '8px 12px', fontSize: '0.85rem' }}>
+                ✏️ Rename
+              </button>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
               <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
                 {event.format === '1v1v1-single-elimination' ? 'ROUNDS:' : 'ROUNDS:'}
@@ -1445,7 +1465,14 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
                   {event.max_rounds} Rounds
                 </span>
               ) : (
-                <input type="number" min={event.current_round} value={event.max_rounds} onChange={(e) => updateMaxRounds(e.target.value)} style={miniInput} />
+                <input
+                  type="number"
+                  min={event.current_round}
+                  value={event.max_rounds}
+                  onChange={(e) => updateMaxRounds(e.target.value)}
+                  disabled={isFinalized}
+                  style={{ ...miniInput, opacity: isFinalized ? 0.5 : 1, cursor: isFinalized ? 'not-allowed' : 'text' }}
+                />
               )}
             </div>
           </div>
