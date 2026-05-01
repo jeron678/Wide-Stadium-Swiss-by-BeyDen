@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
+
 
 const CATEGORIES = ['BX', 'UX', 'BX-00', 'BX-Expand', 'UX-Expand', 'Collab', 'CX', 'CX-Expand'];
 const GENERAL_GROUPS = ['Ratchets', 'Bits', 'Integrated-Bit'];
@@ -133,6 +134,18 @@ export default function App() {
             left: 50%;
             margin-top: -50vw;
             margin-left: -50vh;
+          }
+        }
+        @media (max-width: 480px) {
+          .rename-btn {
+            padding: 4px 8px !important;
+            font-size: 0.7rem !important;
+            white-space: nowrap;
+          }
+          .header-content-mobile {
+            flex-direction: column;
+            align-items: flex-start !important;
+            gap: 15px;
           }
         }
       `}</style>
@@ -1190,10 +1203,17 @@ function HistoryView({ events, setEvents, setView, loadEvent }) {
 function ActiveTournament({ event, onBack, setRefereeData, setView }) {
   // Logic simplified: Use 'event' directly from props. 
   // App component handles the Realtime syncing.
-
+  const currentRoundRef = useRef(null);
   const [showEditPlayers, setShowEditPlayers] = useState(false);
   const [editPlayerNames, setEditPlayerNames] = useState('');
-
+  useEffect(() => {
+    if (currentRoundRef.current) {
+      currentRoundRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'start' 
+      });
+    }
+  }, []);
   // Initialize edit player names when component mounts or event changes
   useEffect(() => {
     setEditPlayerNames(event.players.map(p => p.name).join('\n'));
@@ -1452,7 +1472,7 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <h2 style={headerTitle}>{event.name}</h2>
-              <button onClick={renameEvent} style={{ ...utilBtn, padding: '8px 12px', fontSize: '0.85rem' }}>
+              <button className="rename-btn" onClick={renameEvent} style={{ ...utilBtn, padding: '8px 12px', fontSize: '0.85rem' }}>
                 ✏️ Rename
               </button>
             </div>
@@ -1485,9 +1505,10 @@ function ActiveTournament({ event, onBack, setRefereeData, setView }) {
 
       <div style={roundScrollArea}>
         {event.matches.map((roundMatches, rIdx) => {
+          const isCurrentRound = rIdx + 1 === event.current_round;
           const isCompleted = rIdx + 1 < event.current_round;
           return (
-            <div key={rIdx}>
+            <div key={rIdx} ref={isCurrentRound ? currentRoundRef : null} style={{ scrollMarginTop: '80px' }}>
               <div style={isCompleted ? completedRound : currentRound}>
                 <div style={roundHeader}>
                   <span style={roundBadge}>ROUND {rIdx + 1}</span>
@@ -1716,12 +1737,12 @@ const historyCard = { background: '#1e293b', padding: '20px', borderRadius: '12p
 const historyName = { fontWeight: '700', fontSize: '1.1rem' };
 const historyMeta = { color: '#64748b', fontSize: '0.85rem' };
 const openBtn = { background: '#3b82f6', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' };
-const stickyHeader = { position: 'fixed', top: 0, left: 0, right: 0, background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(10px)', borderBottom: '1px solid #334155', zIndex: 100, padding: '15px' };
+const stickyHeader = { position: 'fixed', top: 0, left: 0, right: 0, background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(10px)', borderBottom: '1px solid #334155', zIndex: 100, padding: '10px 15px' };
 const headerContent = { maxWidth: '1000px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const headerTitle = { margin: 0, fontSize: '1.1rem', color: '#3b82f6' };
-const utilBtn = { background: '#334155', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' };
+const utilBtn = { background: '#334155', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', flexWrap: 'wrap', gap: '10px' };
 const roundScrollArea = { display: 'flex', flexDirection: 'column', gap: '50px', padding: '40px 0' };
-const currentRound = { opacity: 1 };
+const currentRound = { opacity: 1 , scrollMarginTop: '80px'};
 const completedRound = { opacity: 0.4, filter: 'grayscale(0.8)' };
 const roundHeader = { display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' };
 const roundBadge = { background: '#2563eb', color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '800' };
