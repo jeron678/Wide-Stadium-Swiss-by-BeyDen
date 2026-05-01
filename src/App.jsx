@@ -439,6 +439,27 @@ export function BladeRandomizer({ onBack }) {
     return Array.from(new Set(parts));
   };
 
+  const getGeneralPartsBySubcategory = (headerName, subCategory) => {
+    const parts = [];
+    itemGroups.forEach(group => {
+      if (group.category === headerName && group.subCategory === subCategory) {
+        group.items.forEach(item => {
+          if (isItemSelected(itemKey(group.category, group.subCategory, item))) parts.push(item);
+        });
+      }
+    });
+    return Array.from(new Set(parts));
+  };
+
+  const getBladePartSubcategory = (cat, partName) => {
+    for (const group of itemGroups) {
+      if (group.category === cat && group.items.includes(partName)) {
+        return group.subCategory;
+      }
+    }
+    return null;
+  };
+
   const pick = (list) => (list && list.length > 0) ? list[Math.floor(Math.random() * list.length)] : null;
 
   const getMissingBladePartMessage = (cat) => {
@@ -495,11 +516,22 @@ export function BladeRandomizer({ onBack }) {
     if (chosenCat === 'UX-Expand') {
       combo.push({ type: 'Bit', name: pick(bits) });
     } else {
-      const useIntegrated = integrated.length > 0 && Math.random() < 0.15;
+      const mainBladeName = combo.find(p => p.type === 'Blade')?.name;
+      const forceSimpleRatchet = chosenCat === 'UX' && mainBladeName === 'Clock Mirage';
+      const useIntegrated = !forceSimpleRatchet && integrated.length > 0 && Math.random() < 0.15;
+
       if (useIntegrated) {
         combo.push({ type: 'Integrated-Bit', name: pick(integrated) });
       } else {
-        combo.push({ type: 'Ratchet', name: pick(ratchets) });
+        const ratchetSource = forceSimpleRatchet
+          ? getGeneralPartsBySubcategory('Ratchets', 'Simple')
+          : ratchets;
+
+        if (forceSimpleRatchet && ratchetSource.length === 0) {
+          return alert("Clock Mirage requires a Simple ratchet. Please enable Simple Ratchets in the item selector.");
+        }
+
+        combo.push({ type: 'Ratchet', name: pick(ratchetSource) });
         combo.push({ type: 'Bit', name: pick(bits) });
       }
     }
@@ -517,56 +549,63 @@ export function BladeRandomizer({ onBack }) {
     const usedRatchets = new Set();
     const usedBits = new Set();
     const pickUnique = (list, set) => {
-    if (!list || list.length === 0) return null;
+      if (!list || list.length === 0) return null;
 
-    if (allowRepeats) {
-      return pick(list);
-    }
-
-    const available = list.filter(p => !set.has(p));
-
-    if (available.length === 0) {
-      return null; // IMPORTANT: do NOT fallback here
-    }
-
-    const selection = pick(available);
-    set.add(selection);
-    return selection;
-  };
-
-    for (let i = 0; i < 3; i++) {
-      const cat = activeCats[Math.floor(Math.random() * activeCats.length)];
-      
-      // Verify blade parts are still available
-      const missingMessage = getMissingBladePartMessage(cat);
-      if (missingMessage) {
-        return alert(`Slot ${i + 1}: ${missingMessage}`);
+      if (allowRepeats) {
+        return pick(list);
       }
-      
-      let bey = { system: cat, parts: [] };
+
+      const available = list.filter(p => !set.has(p));
+      if (available.length === 0) return null;
+
+      const selection = pick(available);
+      set.add(selection);
+      return selection;
+    };
+
+    const buildBey = (cat) => {
+      const bey = { system: cat, parts: [] };
+      const mainBladeName = cat === 'CX'
+        ? pickUnique(getBladeParts('CX', 'Main Blade'), usedBlades)
+        : cat === 'CX-Expand'
+          ? pickUnique(getBladeParts('CX-Expand', 'Main Blade'), usedBlades)
+          : pickUnique(getBladeParts(cat, 'Main Blade'), usedBlades);
 
       if (cat === 'CX') {
-        bey.parts.push({ type: 'Lock Chip', name: pickUnique(getBladeParts('CX', 'Lock Chip'), usedBlades) });
-        bey.parts.push({ type: 'Main Blade', name: pickUnique(getBladeParts('CX', 'Main Blade'), usedBlades) });
-        bey.parts.push({ type: 'Assist Blade', name: pickUnique(getBladeParts('CX', 'Assist Blade'), usedBlades) });
+        const lockChip = pickUnique(getBladeParts('CX', 'Lock Chip'), usedBlades);
+        const assist = pickUnique(getBladeParts('CX', 'Assist Blade'), usedBlades);
+        if (!lockChip || !mainBladeName || !assist) return null;
+        bey.parts.push({ type: 'Lock Chip', name: lockChip });
+        bey.parts.push({ type: 'Main Blade', name: mainBladeName });
+        bey.parts.push({ type: 'Assist Blade', name: assist });
       } else if (cat === 'CX-Expand') {
-        bey.parts.push({ type: 'Lock Chip', name: pickUnique(getBladeParts('CX', 'Lock Chip'), usedBlades) });
-        bey.parts.push({ type: 'Metal Blade', name: pickUnique(getBladeParts('CX-Expand', 'Metal Blade'), usedBlades) });
-        bey.parts.push({ type: 'Over Blade', name: pickUnique(getBladeParts('CX-Expand', 'Over Blade'), usedBlades) });
-        bey.parts.push({ type: 'Assist Blade', name: pickUnique(getBladeParts('CX', 'Assist Blade'), usedBlades) });
+        const lockChip = pickUnique(getBladeParts('CX', 'Lock Chip'), usedBlades);
+        const metalBlade = pickUnique(getBladeParts('CX-Expand', 'Metal Blade'), usedBlades);
+        const overBlade = pickUnique(getBladeParts('CX-Expand', 'Over Blade'), usedBlades);
+        const assist = pickUnique(getBladeParts('CX', 'Assist Blade'), usedBlades);
+        if (!lockChip || !metalBlade || !overBlade || !assist) return null;
+        bey.parts.push({ type: 'Lock Chip', name: lockChip });
+        bey.parts.push({ type: 'Metal Blade', name: metalBlade });
+        bey.parts.push({ type: 'Over Blade', name: overBlade });
+        bey.parts.push({ type: 'Assist Blade', name: assist });
       } else {
-        bey.parts.push({ type: 'Blade', name: pickUnique(getBladeParts(cat, 'Main Blade'), usedBlades) });
+        if (!mainBladeName) return null;
+        bey.parts.push({ type: 'Blade', name: mainBladeName });
       }
 
-      // Hardware Logic Fix
       if (cat === 'UX-Expand') {
-        bey.parts.push({ type: 'Bit', name: pickUnique(getGeneralParts('Bits'), usedBits) || pick(getGeneralParts('Bits')) });
+        const bitName = pickUnique(getGeneralParts('Bits'), usedBits) || pick(getGeneralParts('Bits'));
+        if (!bitName) return null;
+        bey.parts.push({ type: 'Bit', name: bitName });
       } else {
         const bitsList = getGeneralParts('Bits');
         const integratedList = getGeneralParts('Integrated-Bit');
-        
-        // Randomly decide which to try first
-        const tryIntegratedFirst = Math.random() < 0.3; 
+        const forceSimpleRatchet = cat === 'UX' && bey.parts.find(p => p.type === 'Blade')?.name === 'Clock Mirage';
+        const ratchetCandidates = forceSimpleRatchet
+          ? getGeneralPartsBySubcategory('Ratchets', 'Simple')
+          : getGeneralParts('Ratchets');
+
+        const tryIntegratedFirst = !forceSimpleRatchet && Math.random() < 0.3;
         let partSelected = null;
 
         if (tryIntegratedFirst) {
@@ -576,24 +615,41 @@ export function BladeRandomizer({ onBack }) {
           }
         }
 
-        // If no integrated bit was picked (or none were available/unique), pick a normal Bit + Ratchet
         if (!partSelected) {
           const bitName = pickUnique(bitsList, usedBits);
-          const ratchetName = pickUnique(getGeneralParts('Ratchets'), usedRatchets);
-
-          // If we can't find unique parts → FAIL EARLY
-          if (!bitName || !ratchetName) {
-            alert("Not enough unique parts to generate a full 3on3 deck without repeats.");
-            return;
-          }
-
+          const ratchetName = pickUnique(ratchetCandidates, usedRatchets);
+          if (!bitName || !ratchetName) return null;
           bey.parts.push({ type: 'Ratchet', name: ratchetName });
           bey.parts.push({ type: 'Bit', name: bitName });
-          
         }
+      }
+
+      return bey;
+    };
+
+    const buildSlot = () => {
+      const categories = [...activeCats];
+      while (categories.length > 0) {
+        const pickIndex = Math.floor(Math.random() * categories.length);
+        const cat = categories.splice(pickIndex, 1)[0];
+        const missingMessage = getMissingBladePartMessage(cat);
+        if (missingMessage) continue;
+        const bey = buildBey(cat);
+        if (bey && bey.parts.every(p => p.name)) {
+          return bey;
+        }
+      }
+      return null;
+    };
+
+    for (let i = 0; i < 3; i++) {
+      const bey = buildSlot();
+      if (!bey) {
+        return alert("Unable to generate a valid 3on3 deck with the current selection. Try enabling more parts or allow repeats.");
       }
       deck.push(bey);
     }
+
     setDeckResult(deck);
     setResult(null);
   };
