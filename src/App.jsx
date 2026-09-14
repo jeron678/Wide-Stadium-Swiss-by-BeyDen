@@ -999,7 +999,7 @@ const deckBtn = {
 
 
 // --- VIEW: SCOREBOARD (HYBRID MODE) ---
-function ScoreboardView({ setView, activeMatch, event_id }) {
+export function ScoreboardView({ setView, activeMatch, event_id }) {
   const isTournamentMode = !!activeMatch;
   const [standaloneMode, setStandaloneMode] = useState(2);
   const mode = isTournamentMode ? activeMatch.members.length : standaloneMode;

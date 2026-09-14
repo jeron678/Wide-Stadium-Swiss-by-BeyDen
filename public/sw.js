@@ -1,8 +1,11 @@
-const CACHE_NAME = 'beyblade-x-sg-cache-v1';
+const CACHE_NAME = 'beyblade-x-sg-cache-v2';
+
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
+  '/scoreboard.html',
   '/favicon.svg',
+  '/icons.png',
   '/manifest.json',
 ];
 
