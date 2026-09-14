@@ -3,13 +3,13 @@
   "name": "BeyDen Live Scoreboard",
   "icons": [
     {
-      "src": "/icons.svg",
-      "type": "image/svg+xml",
+      "src": "/beyden.png",
+      "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "/icons.svg",
-      "type": "image/svg+xml",
+      "src": "/beyden.png",
+      "type": "image/png",
       "sizes": "512x512"
     }
   ],

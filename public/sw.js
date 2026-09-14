@@ -1,4 +1,4 @@
-const CACHE_NAME = 'beyblade-x-sg-cache-v2';
+const CACHE_NAME = 'beyblade-x-sg-cache-v2'
 
 const ASSETS_TO_CACHE = [
   '/',
@@ -6,8 +6,8 @@ const ASSETS_TO_CACHE = [
   '/scoreboard.html',
   '/favicon.svg',
   '/icons.png',
-  '/manifest.json',
-];
+  '/manifest.json'
+]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -26,6 +26,7 @@ self.addEventListener('activate', (event) => {
       )
     )
   )
+
   self.clients.claim()
 })
 
@@ -34,29 +35,47 @@ self.addEventListener('fetch', (event) => {
 
   const requestUrl = new URL(event.request.url)
 
-  if (requestUrl.origin === self.location.origin) {
-    if (event.request.mode === 'navigate') {
-      event.respondWith(
-        fetch(event.request)
-          .then((response) => {
-            const copy = response.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy))
-            return response
-          })
-          .catch(() => caches.match('/index.html'))
-      )
-      return
-    }
+  if (requestUrl.origin !== self.location.origin) return
 
+  if (event.request.mode === 'navigate') {
     event.respondWith(
-      caches.match(event.request).then((cached) =>
-        cached ||
-        fetch(event.request).then((response) => {
-          const responseClone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone))
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone()
+
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, copy)
+          })
+
           return response
-        }).catch(() => caches.match(event.request))
-      )
+        })
+        .catch(() => {
+          if (requestUrl.pathname === '/scoreboard.html') {
+            return caches.match('/scoreboard.html')
+          }
+
+          return caches.match('/index.html')
+        })
     )
+
+    return
   }
+
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached
+
+      return fetch(event.request)
+        .then((response) => {
+          const responseClone = response.clone()
+
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone)
+          })
+
+          return response
+        })
+        .catch(() => caches.match(event.request))
+    })
+  )
 })
