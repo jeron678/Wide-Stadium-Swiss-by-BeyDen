@@ -27,14 +27,23 @@ test('legacy opponent names remain readable', () => {
   assert.equal(calculateBuchholz(players[0], players), 4);
 });
 
-test('Swiss ranking uses score, then wins, then TB, then Buchholz', () => {
+test('Swiss ranking uses wins, then TB, then points, then Buchholz', () => {
   const players = [
-    { id: 'a', name: 'Alice', score: 6, wins: 1, opponents: ['c'] },
-    { id: 'b', name: 'Bob', score: 6, wins: 1, opponents: ['c'] },
-    { id: 'c', name: 'Chris', score: 8, wins: 2, opponents: [] },
+    { id: 'a', name: 'Alice', score: 12, wins: 2, winsAgainst: ['b'], opponents: ['b'] },
+    { id: 'b', name: 'Bob', score: 20, wins: 2, winsAgainst: [], opponents: ['a'] },
+    { id: 'c', name: 'Chris', score: 30, wins: 1, winsAgainst: [], opponents: [] },
   ];
   const sorted = [...players].sort((a, b) => compareSwissPlayers(a, b, players));
-  assert.deepEqual(sorted.map(player => player.id), ['c', 'a', 'b']);
+  assert.deepEqual(sorted.map(player => player.id), ['a', 'b', 'c']);
+});
+
+test('Swiss ranking uses points only after wins and TB are tied', () => {
+  const players = [
+    { id: 'a', name: 'Alice', score: 12, wins: 2, winsAgainst: [], opponents: [] },
+    { id: 'b', name: 'Bob', score: 10, wins: 2, winsAgainst: [], opponents: [] },
+  ];
+  const sorted = [...players].sort((a, b) => compareSwissPlayers(a, b, players));
+  assert.deepEqual(sorted.map(player => player.id), ['a', 'b']);
 });
 
 

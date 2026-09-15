@@ -51,14 +51,15 @@ export const calculateTB = (player, allPlayers) => {
 };
 
 export const compareSwissPlayers = (a, b, allPlayers) => {
-  const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
-  if (scoreDiff !== 0) return scoreDiff;
-
+  // Official Swiss standings priority: Wins -> TB -> Points -> Buchholz.
   const winsDiff = Number(b.wins || 0) - Number(a.wins || 0);
   if (winsDiff !== 0) return winsDiff;
 
   const tbDiff = calculateTB(b, allPlayers) - calculateTB(a, allPlayers);
   if (tbDiff !== 0) return tbDiff;
+
+  const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+  if (scoreDiff !== 0) return scoreDiff;
 
   const buchholzDiff = calculateBuchholz(b, allPlayers) - calculateBuchholz(a, allPlayers);
   if (buchholzDiff !== 0) return buchholzDiff;
