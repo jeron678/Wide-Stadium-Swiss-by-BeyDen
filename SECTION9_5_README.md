@@ -18,3 +18,11 @@ This adds `events.public_enabled`, an index, and a read-only RLS policy for `ano
 
 ## URL
 `https://YOUR-DOMAIN/live.html?event=EVENT_ID`
+
+
+## Section 9.6 — Public Live Imposter Substitutes
+- Public live match cards now display Imposter 1/2 alongside real players.
+- Imposters are treated as visible playable participants on the public live/current-round views rather than being hidden.
+- Imposter rows are visually marked `PHYSICAL SUB` so spectators and referees know a real person is physically subbing into that slot.
+- Imposters remain excluded from tournament standings and official player statistics.
+- Added a focused regression test for public-live imposter visibility.

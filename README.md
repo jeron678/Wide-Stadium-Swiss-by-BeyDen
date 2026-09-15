@@ -194,3 +194,7 @@ Section 9 adds audit formatting tests while preserving all previous test suites.
 
 ## Section 9.5
 Public Live Tournament Experience is documented in `SECTION9_5_README.md`. Apply the Section 9.5 Supabase migration before enabling public live pages.
+
+
+### Section 9.6 — Public Live Imposter Substitutes
+Public live match views now show Imposter 1 and Imposter 2 as visible playable participants, marked as physical substitutes. They remain excluded from official standings.

@@ -21,3 +21,7 @@ export function getLiveMatchCounts(event) {
     pending: matches.filter(match => match.status === 'pending').length,
   };
 }
+
+export function getLiveMatchMembers(match) {
+  return Array.isArray(match?.members) ? match.members.filter(Boolean) : [];
+}
