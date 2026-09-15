@@ -4,6 +4,7 @@ import { calculateBuchholz, getRoundStatus, validateCompletedRound, calculateSin
 import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults, applyEliminationRound, generateEliminationMatches, getEliminationWinnerIds, getStandings, ELIMINATION_FORMAT, isImposter, PLAYER_STATUS } from '../tournamentEngine.js';
 import { buildScoreboardUrl } from '../refereeScoreboard.js';
 import { buildRefereeDashboardUrl } from '../refereeDashboard.js';
+import { buildPublicLiveUrl } from '../publicLiveUtils.js';
 import {
   activeLayout, stickyHeader, headerContent, headerTitle, utilBtn, roundScrollArea, currentRound, completedRound, roundHeader, roundBadge, statusTag, matchGrid, matchCard, matchLabel, matchRow, roundActionBtn, stickyButtonContainer, standingContainer, standingsTable, th, thLeft, thCenter, tr, tdRank, tdName, tdCenter, tdBH, pName, sectionTitle, miniInput, secondaryBtn, modalOverlay, modalDialog, modalHeader, modalCloseBtn, modalActions, modalActionBtn, textArea, playBtn, editBtn, scoreDisplay, matchLinkRow, matchLinkBtn, primaryBtn, tableWrapper
 } from '../styles/appStyles.js';
@@ -53,6 +54,22 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
       setIsRefreshing(false);
       window.setTimeout(() => setControlMessage(''), 2500);
     }
+  };
+
+  const togglePublicLive = async () => {
+    const next = !Boolean(event.public_enabled);
+    const confirmed = window.confirm(next ? 'Enable the public live page? Anyone with the link will be able to view tournament standings and match progress.' : 'Disable the public live page? Existing shared links will stop working.');
+    if (!confirmed) return;
+    try {
+      await updateEvent(event.event_id, { public_enabled: next }, event.revision, { message: 'Another device changed public live access. Refresh and try again.' });
+      setControlMessage(next ? 'Public live page enabled.' : 'Public live page disabled.');
+      window.setTimeout(() => setControlMessage(''), 2500);
+    } catch (error) { alert(`Unable to change public live access: ${error?.message || 'Unknown error'}`); }
+  };
+
+  const copyPublicLiveLink = async () => {
+    const url = buildPublicLiveUrl(event.event_id);
+    try { await navigator.clipboard.writeText(url); alert('Public live link copied.'); } catch { window.prompt('Copy this public live link:', url); }
   };
 
   const togglePause = async () => {
@@ -361,6 +378,8 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
             <button onClick={togglePause} disabled={isFinalized} style={{...secondaryBtn, opacity: isFinalized ? 0.5 : 1}}>{event.status === 'paused' ? '▶️ Resume' : '⏸ Pause'}</button>
             <button onClick={refreshTournament} disabled={isRefreshing} style={{...secondaryBtn}}>{isRefreshing ? '↻ Refreshing…' : '↻ Refresh'}</button>
             <button onClick={() => window.open(buildRefereeDashboardUrl(event.event_id), '_blank', 'noopener,noreferrer')} style={{...secondaryBtn}}>🎛 Referee Dashboard</button>
+            <button onClick={togglePublicLive} style={{...secondaryBtn}}>{event.public_enabled ? '🌐 Disable Public Live' : '🌐 Enable Public Live'}</button>
+            {event.public_enabled && <button onClick={copyPublicLiveLink} style={{...secondaryBtn}}>🔗 Copy Live Link</button>}
             <button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button>
             <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
             <button onClick={onBack} style={utilBtn}>Main Menu</button>
