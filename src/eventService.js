@@ -2,8 +2,6 @@ import { supabase } from './supabaseClient.js';
 
 import { EventConflictError, cloneEventData, isMissingRevisionColumnError, isMissingOwnerColumnError, isNoRowsConflict } from './eventServiceUtils.js';
 
-export { EventConflictError };
-
 async function legacyUpdateEvent(eventId, changes) {
   const { data, error } = await supabase
     .from('events')

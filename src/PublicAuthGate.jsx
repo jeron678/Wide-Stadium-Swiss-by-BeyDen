@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import AuthScreen from './AuthScreen.jsx';
-import { authRequired, getSession, subscribeToAuth } from './authService.js';
+import { getSession, subscribeToAuth } from './authService.js';
 
 function hasSignupConfirmationCallback() {
   const hash = window.location.hash || '';
@@ -28,18 +28,13 @@ function EmailConfirmedScreen({ session, onContinue }) {
   );
 }
 
-export default function AuthGate({ children }) {
+export default function PublicAuthGate({ children }) {
   const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(authRequired());
+  const [checking, setChecking] = useState(true);
   const [emailConfirmed, setEmailConfirmed] = useState(false);
   const [confirmationNeedsLogin, setConfirmationNeedsLogin] = useState(false);
 
   useEffect(() => {
-    if (!authRequired()) {
-      setLoading(false);
-      return undefined;
-    }
-
     let mounted = true;
     const callbackDetected = hasSignupConfirmationCallback();
 
@@ -51,12 +46,12 @@ export default function AuthGate({ children }) {
         setConfirmationNeedsLogin(!value);
       }
       cleanAuthCallbackUrl();
-      setLoading(false);
+      setChecking(false);
     }).catch(() => {
       if (!mounted) return;
       if (callbackDetected) setConfirmationNeedsLogin(true);
       cleanAuthCallbackUrl();
-      setLoading(false);
+      setChecking(false);
     });
 
     const unsubscribe = subscribeToAuth(value => {
@@ -71,9 +66,11 @@ export default function AuthGate({ children }) {
     return () => { mounted = false; unsubscribe(); };
   }, []);
 
-  if (!authRequired()) return children;
-  if (loading) return <main className="auth-shell"><section className="auth-card"><div className="auth-brand">BEYDEN</div><h1>Loading…</h1></section></main>;
+  if (checking) return React.cloneElement(children, { authSession: null, authChecking: true });
   if (emailConfirmed && session) return <EmailConfirmedScreen session={session} onContinue={() => setEmailConfirmed(false)} />;
-  if (!session) return <AuthScreen initialMessage={confirmationNeedsLogin ? 'Email confirmed successfully. Please sign in to continue.' : ''} onAuthenticated={value => { setSession(value); setConfirmationNeedsLogin(false); setEmailConfirmed(false); }} />;
+  if (confirmationNeedsLogin && !session) {
+    return <AuthScreen initialMessage="Email confirmed successfully. Please sign in to continue." onAuthenticated={value => { setSession(value); setConfirmationNeedsLogin(false); }} />;
+  }
+
   return React.cloneElement(children, { authSession: session });
 }

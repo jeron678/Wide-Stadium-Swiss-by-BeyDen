@@ -162,3 +162,32 @@ As with previous sections, a full Vite production build should be run on a norma
 
 ## Section 8
 See `SECTION8_README_APPEND.md` for authentication, event-member roles, Supabase RLS setup, and legacy-event migration steps.
+
+
+## Section 9 — Tournament Activity & Audit Viewer
+
+This section exposes the server-side audit trail created by Section 3 through a manager-only activity viewer.
+
+### New capabilities
+
+- **Tournament Activity** panel from the main tournament screen.
+- Shows revision number, changed fields, timestamp, and the actor that made the change.
+- Manager/owner-only access through Supabase RLS.
+- Manual refresh for reviewing the latest activity.
+- Keeps the existing server-side audit trigger as the source of truth.
+- Referees do not receive direct access to the audit table.
+
+### New files
+
+- `src/eventAuditService.js` — audit retrieval and display helpers.
+- `src/eventAuditService.test.js` — audit formatting regression tests.
+- `src/EventAuditPanel.jsx` — activity history UI.
+- `supabase/migrations/20260915_section9_audit_access.sql` — manager-only audit RLS policy.
+
+### Security
+
+The UI does not determine whether a user may read audit history. The Supabase `event_audit_manager_select` policy calls the existing `is_event_manager(event_id)` security function, so database access remains enforced server-side.
+
+### Validation
+
+Section 9 adds audit formatting tests while preserving all previous test suites. Apply the Section 9 migration after Sections 3 and 8 so the existing audit table and role helper functions are available.

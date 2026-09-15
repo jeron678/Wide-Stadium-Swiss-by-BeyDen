@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { signOut } from './authService.js';
+import AuthScreen from './AuthScreen.jsx';
 import EventAccessPanel from './EventAccessPanel.jsx';
+import EventAuditPanel from './EventAuditPanel.jsx';
 import { listEvents, subscribeToEvent } from './eventService';
 import { migrateLegacyTournament } from './tournamentEngine';
 import { ScoreboardView } from './scoreboard/ScoreboardView.jsx';
@@ -20,6 +22,8 @@ import './scoreboard.css';
 
 // --- MAIN APP ---
 export default function App({ authSession }) {
+  const [session, setSession] = useState(authSession || null);
+  const [protectedReturnView, setProtectedReturnView] = useState('MAIN');
   const [view, setView] = useState('MAIN'); 
   const [events, setEvents] = useState([]);
   const [currentEvent, setCurrentEvent] = useState(null);
@@ -28,7 +32,27 @@ export default function App({ authSession }) {
   const [itemGroups, setItemGroups] = useState([]);
   const [librarySort, setLibrarySort] = useState({ column: 'name', ascending: true });
   const [showAccess, setShowAccess] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);
   const [libraryFilters, setLibraryFilters] = useState({ Blades: { system: null, type: null, class: null }, Ratchets: { type: null }, Bits: { system: null, type: null } });
+
+  useEffect(() => {
+    if (authSession !== undefined) setSession(authSession || null);
+  }, [authSession]);
+
+  const requireSignIn = (nextView = 'MAIN') => {
+    if (session) {
+      setView(nextView);
+      return true;
+    }
+    setProtectedReturnView(nextView);
+    setView('AUTH');
+    return false;
+  };
+
+  const handleAuthenticated = value => {
+    setSession(value);
+    setView(protectedReturnView || 'MAIN');
+  };
 
   // REALTIME SUBSCRIPTION: Listen for changes at the App level
   useEffect(() => {
@@ -57,6 +81,7 @@ export default function App({ authSession }) {
   }, []);
 
   const fetchEvents = async () => {
+    if (!requireSignIn('HISTORY')) return;
     try {
       const data = await listEvents();
       setEvents(data);
@@ -97,33 +122,41 @@ export default function App({ authSession }) {
       )}
 
       <div style={contentWrapper}>
+        {view === 'AUTH' && (
+          <AuthScreen
+            initialMessage="Sign in is required to create or view tournaments."
+            onAuthenticated={handleAuthenticated}
+          />
+        )}
+
         {view === 'MAIN' && (
           <div style={heroSection}>
             <h1 style={heroTitle}>🏆 Beyblade Manager <span style={brandSpan}>by BeyDen</span></h1>
             <div style={buttonGroup}>
-              <button onClick={() => setView('CREATE')} style={primaryBtn}>➕ Create New Event</button>
+              <button onClick={() => requireSignIn('CREATE')} style={primaryBtn}>➕ Create New Event</button>
               <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournaments</button>
-              <button onClick={() => {setRefereeData(null); setView('SCOREBOARD')}} style={accentBtn}>⏱ Live Scoreboard (Ref Tool)</button>
-              {currentEvent && <button onClick={() => setShowAccess(true)} style={secondaryBtn}>🔐 Event Access</button>}
-              <button onClick={async () => { try { await signOut(); } catch (error) { alert(error?.message || 'Unable to sign out.'); } }} style={secondaryBtn}>↪ Sign Out</button>
+              <button onClick={() => {setRefereeData(null); setView('SCOREBOARD')}} style={accentBtn}>⏱ Live Scoreboard (Public)</button>
+              {currentEvent && <button onClick={() => { if (requireSignIn('MAIN')) setShowAccess(true); }} style={secondaryBtn}>🔐 Event Access</button>}
+              {currentEvent && <button onClick={() => { if (requireSignIn('MAIN')) setShowAudit(true); }} style={secondaryBtn}>🕘 Activity Log</button>}
+              {session && <button onClick={async () => { try { await signOut(); setSession(null); setCurrentEvent(null); setView('MAIN'); } catch (error) { alert(error?.message || 'Unable to sign out.'); } }} style={secondaryBtn}>↪ Sign Out</button>}
               <button onClick={() => setView('RANDOMIZER')} style={secondaryBtn}>🎲 Beyblade Combo Randomizer</button>
               <button onClick={() => setView('PARTS_LIBRARY')} style={secondaryBtn}>📂 Beyblade Parts</button>
             </div>
           </div>
         )}
 
-        {view === 'CREATE' && <CreateEventView setView={setView} loadEvent={loadEvent} />}
-        {view === 'HISTORY' && <HistoryView events={events} setView={setView} loadEvent={loadEvent} />}
-        {view === 'BACKUP' && currentEvent && (
+        {view === 'CREATE' && session && <CreateEventView setView={setView} loadEvent={loadEvent} />}
+        {view === 'HISTORY' && session && <HistoryView events={events} setView={setView} loadEvent={loadEvent} />}
+        {view === 'BACKUP' && session && currentEvent && (
           <EventBackupPanel event={currentEvent} setView={setView} loadEvent={loadEvent} />
         )}
-        {view === 'ACTIVE' && (
+        {view === 'ACTIVE' && session && (
           <ActiveTournament 
             event={currentEvent} 
             onBack={() => setView('MAIN')} 
             setRefereeData={setRefereeData} 
             setView={setView}
-            authSession={authSession}
+            authSession={session}
           />
         )}
         {view === 'RANDOMIZER' && <BladeRandomizer onBack={() => setView('MAIN')} />}
@@ -274,7 +307,8 @@ export default function App({ authSession }) {
           </div>
         )}
       </div>
-      {showAccess && currentEvent && <EventAccessPanel event={currentEvent} session={authSession} onClose={() => setShowAccess(false)} />}
+      {showAccess && session && currentEvent && <EventAccessPanel event={currentEvent} session={session} onClose={() => setShowAccess(false)} />}
+      {showAudit && session && currentEvent && <EventAuditPanel event={currentEvent} session={session} onClose={() => setShowAudit(false)} />}
     </div>
   );
 }

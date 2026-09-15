@@ -13,7 +13,8 @@ export async function signIn(email, password) {
 }
 
 export async function signUp(email, password) {
-  const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+  const redirectTo = import.meta.env.VITE_AUTH_REDIRECT_URL || `${window.location.origin}/`;
+  const { data, error } = await supabase.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: redirectTo } });
   if (error) throw error;
   return data;
 }
@@ -26,12 +27,4 @@ export async function signOut() {
 export function subscribeToAuth(onChange) {
   const { data } = supabase.auth.onAuthStateChange((_event, session) => onChange(session));
   return () => data.subscription.unsubscribe();
-}
-
-import { getCurrentUserId, authRequired as authRequiredValue } from './authUtils.js';
-
-export { getCurrentUserId };
-
-export function authRequired() {
-  return authRequiredValue(import.meta.env.VITE_REQUIRE_AUTH);
 }
