@@ -2,16 +2,20 @@
    This file is loaded by both the main navigation app and scoreboard.html,
    so the standalone scoreboard behaves exactly like the in-app scoreboard. */
 
+.landscape-lock {
+  width: 100%;
+  height: 100%;
+}
+
 @media (orientation: portrait) {
   .landscape-lock {
-    width: 100vh !important;
-    height: 100vw !important;
-    transform: rotate(90deg);
-    transform-origin: center;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    margin-top: -50vw;
-    margin-left: -50vh;
+    position: fixed !important;
+    width: 100dvh !important;
+    height: 100dvw !important;
+    top: 50% !important;
+    left: 50% !important;
+    margin: 0 !important;
+    transform: translate(-50%, -50%) rotate(90deg) !important;
+    transform-origin: center center !important;
   }
 }

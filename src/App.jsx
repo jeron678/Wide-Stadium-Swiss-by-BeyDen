@@ -1757,7 +1757,16 @@ const listContainer = { display: 'flex', flexDirection: 'column' };
 const pName = { fontWeight: '500' };
 const activeLayout = { paddingTop: '60px' };
 
-const sbContainer = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: '#000', zIndex: 9999, overflow: 'hidden' };
+const sbContainer = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  width: '100dvw',
+  height: '100dvh',
+  background: '#000',
+  zIndex: 9999,
+  overflow: 'hidden'
+};
 const sbRotationWrapper = { width: '100%', height: '100%' };
 const sbOverlay = { position: 'absolute', top: '15px', left: '50%', transform: 'translateX(-50%)', zIndex: 10000, display: 'flex', gap: '10px', width: '90%', justifyContent: 'center' };
 const sbSmallBtn = { background: 'rgba(0,0,0,0.5)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', cursor: 'pointer', backdropFilter: 'blur(4px)' };
