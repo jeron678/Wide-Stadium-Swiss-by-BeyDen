@@ -1,0 +1,17 @@
+/* Shared live-scoreboard layout rules.
+   This file is loaded by both the main navigation app and scoreboard.html,
+   so the standalone scoreboard behaves exactly like the in-app scoreboard. */
+
+@media (orientation: portrait) {
+  .landscape-lock {
+    width: 100vh !important;
+    height: 100vw !important;
+    transform: rotate(90deg);
+    transform-origin: center;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin-top: -50vw;
+    margin-left: -50vh;
+  }
+}

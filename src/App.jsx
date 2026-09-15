@@ -123,19 +123,6 @@ export default function App() {
   return (
     <div style={appContainer}>
       <style>{`
-        @media (orientation: portrait) {
-          .landscape-lock {
-            width: 100vh !important;
-            height: 100vw !important;
-            transform: rotate(90deg);
-            transform-origin: center;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            margin-top: -50vw;
-            margin-left: -50vh;
-          }
-        }
         @media (max-width: 480px) {
           .rename-btn {
             padding: 4px 8px !important;
