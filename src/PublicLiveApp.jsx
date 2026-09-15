@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { getEvent, subscribeToEvent } from './eventService.js';
 import { migrateLegacyTournament, getStandings, isImposter, PLAYER_STATUS } from './tournamentEngine.js';
 import { parsePublicLiveEventId, getLiveMatchCounts, getLiveMatchMembers } from './publicLiveUtils.js';
+import { getPublicPlayerStats } from './publicStatsUtils.js';
 import './public-live.css';
 
 function displayScore(member) {
@@ -15,6 +16,8 @@ export default function PublicLiveApp() {
   const [loading, setLoading] = useState(Boolean(eventId));
   const [lastUpdated, setLastUpdated] = useState(null);
   const [search, setSearch] = useState('');
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [selectedRound, setSelectedRound] = useState(null);
 
   useEffect(() => {
     if (!eventId) {
@@ -46,7 +49,9 @@ export default function PublicLiveApp() {
   const counts = getLiveMatchCounts(event);
   const standings = getStandings(event.players || [], event.format).filter(player => !isImposter(player));
   const filteredStandings = standings.filter(player => String(player.name || '').toLowerCase().includes(search.toLowerCase()));
-  const currentMatches = event.matches?.[Math.max(0, Number(event.current_round || 1) - 1)] || [];
+  const currentRoundIndex = Math.max(0, Number(event.current_round || 1) - 1);
+  const activeRoundIndex = selectedRound === null ? currentRoundIndex : selectedRound;
+  const currentMatches = event.matches?.[activeRoundIndex] || [];
   const visibleMatches = currentMatches.filter(match => (match.members || []).some(member => !isImposter(member)));
 
   return (
@@ -60,8 +65,9 @@ export default function PublicLiveApp() {
         <section className="public-live-section"><div className="section-heading"><h2>🔴 Live Matches</h2><span>{lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : ''}</span></div>
           {visibleMatches.length === 0 ? <p className="muted">No matches are currently in progress.</p> : <div className="live-match-grid">{visibleMatches.map((match, index) => <div className={`live-match ${match.status === 'playing' ? 'is-playing' : ''}`} key={match.id || index}><div className="live-match-label">Match {index + 1} • {match.status === 'completed' ? 'Completed' : match.status === 'playing' ? 'LIVE' : 'Pending'}</div>{getLiveMatchMembers(match).map(member => <div className={`live-player ${isImposter(member) ? 'is-imposter' : ''}`} key={member.id || member.name}><span><span className="live-player-name">{member.name}</span>{isImposter(member) && <span className="imposter-badge">PHYSICAL SUB</span>}</span><strong>{displayScore(member)}</strong></div>)}</div>)}</div>}
         </section>
-        <section className="public-live-section"><div className="section-heading"><h2>🏆 Standings</h2><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search player…" /></div><div className="public-table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>W</th><th>L</th><th>Points</th><th>BH</th></tr></thead><tbody>{filteredStandings.map((player, index) => <tr key={player.id}><td>{index + 1}</td><td>{player.name}{(player.status && player.status !== PLAYER_STATUS.ACTIVE) && <span className="status-pill">{player.status}</span>}</td><td>{player.wins || 0}</td><td>{player.losses || 0}</td><td>{player.points || 0}</td><td>{player.buchholz ?? 0}</td></tr>)}</tbody></table></div></section>
-        <section className="public-live-section"><div className="section-heading"><h2>📋 Current Round</h2></div><div className="round-list">{visibleMatches.map((match, index) => <div key={match.id || index} className="round-item"><span>Match {index + 1}</span><span>{getLiveMatchMembers(match).map(m => `${m.name}${isImposter(m) ? ' [Physical Sub]' : ''} (${displayScore(m)})`).join(' • ')}</span><span>{match.status}</span></div>)}</div></section>
+        <section className="public-live-section"><div className="section-heading"><h2>🏆 Standings</h2><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search player…" /></div><div className="public-table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>W</th><th>L</th><th>Points</th><th>BH</th></tr></thead><tbody>{filteredStandings.map((player, index) => <tr key={player.id}><td>{index + 1}</td><td><button className="player-link" onClick={() => setSelectedPlayer(player)}>{player.name}</button>{(player.status && player.status !== PLAYER_STATUS.ACTIVE) && <span className="status-pill">{player.status}</span>}</td><td>{player.wins || 0}</td><td>{player.losses || 0}</td><td>{player.points || 0}</td><td>{player.buchholz ?? 0}</td></tr>)}</tbody></table></div></section>
+        {selectedPlayer && (() => { const stats = getPublicPlayerStats(event, selectedPlayer); return <section className="public-live-section player-profile"><div className="section-heading"><h2>👤 {selectedPlayer.name}</h2><button onClick={() => setSelectedPlayer(null)}>Close</button></div><div className="player-profile-stats"><div><strong>{stats.wins}</strong><span>Wins</span></div><div><strong>{stats.losses}</strong><span>Losses</span></div><div><strong>{stats.winRate}%</strong><span>Win Rate</span></div></div><div className="player-history">{stats.history.length === 0 ? <p className="muted">No recorded matches yet.</p> : stats.history.map((item, index) => <div className="player-history-row" key={item.matchId || index}><span>Round {item.round}</span><strong className={`result-${item.result.toLowerCase()}`}>{item.result}</strong><span>{item.opponents.join(' • ') || '—'}</span><span>Score {item.score}</span></div>)}</div></section>; })()}
+        <section className="public-live-section"><div className="section-heading"><h2>📋 Round {activeRoundIndex + 1}</h2><select value={activeRoundIndex} onChange={e => setSelectedRound(Number(e.target.value))}>{(event.matches || []).map((_, index) => <option key={index} value={index}>Round {index + 1}{index === currentRoundIndex ? ' • Current' : ''}</option>)}</select></div><div className="round-list">{visibleMatches.map((match, index) => <div key={match.id || index} className="round-item"><span>Match {index + 1}</span><span>{getLiveMatchMembers(match).map(m => `${m.name}${isImposter(m) ? ' [Physical Sub]' : ''} (${displayScore(m)})`).join(' • ')}</span><span>{match.status}</span></div>)}</div></section>
       </main>
     </div>
   );

@@ -198,3 +198,7 @@ Public Live Tournament Experience is documented in `SECTION9_5_README.md`. Apply
 
 ### Section 9.6 — Public Live Imposter Substitutes
 Public live match views now show Imposter 1 and Imposter 2 as visible playable participants, marked as physical substitutes. They remain excluded from official standings.
+
+## Section 9.7 — Public Spectator Statistics
+
+Section 9.7 adds clickable player profiles, public match history, and round selection to the public live spectator page.
