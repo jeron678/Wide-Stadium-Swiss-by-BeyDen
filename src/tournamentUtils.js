@@ -41,12 +41,24 @@ export const calculateBuchholz = (player, allPlayers) => {
   }, 0);
 };
 
+export const calculateTB = (player, allPlayers) => {
+  const playerWins = Number(player?.wins || 0);
+  const winsAgainst = Array.isArray(player?.winsAgainst) ? player.winsAgainst : [];
+  return winsAgainst.reduce((total, opponentRef) => {
+    const opponent = getPlayerByIdOrName(allPlayers, opponentRef);
+    return total + (opponent && Number(opponent.wins || 0) === playerWins ? 1 : 0);
+  }, 0);
+};
+
 export const compareSwissPlayers = (a, b, allPlayers) => {
   const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
   if (scoreDiff !== 0) return scoreDiff;
 
   const winsDiff = Number(b.wins || 0) - Number(a.wins || 0);
   if (winsDiff !== 0) return winsDiff;
+
+  const tbDiff = calculateTB(b, allPlayers) - calculateTB(a, allPlayers);
+  if (tbDiff !== 0) return tbDiff;
 
   const buchholzDiff = calculateBuchholz(b, allPlayers) - calculateBuchholz(a, allPlayers);
   if (buchholzDiff !== 0) return buchholzDiff;

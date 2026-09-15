@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { updateEvent, startMatch } from '../eventService.js';
-import { calculateBuchholz, getRoundStatus, validateCompletedRound, calculateSingleEliminationRounds } from '../tournamentUtils.js';
+import { calculateBuchholz, calculateTB, getRoundStatus, validateCompletedRound, calculateSingleEliminationRounds } from '../tournamentUtils.js';
 import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults, applyEliminationRound, generateEliminationMatches, getEliminationWinnerIds, getStandings, ELIMINATION_FORMAT, isImposter, PLAYER_STATUS } from '../tournamentEngine.js';
 import { buildScoreboardUrl } from '../refereeScoreboard.js';
 import { buildRefereeDashboardUrl } from '../refereeDashboard.js';
@@ -529,6 +529,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                   <th style={thLeft}>Player</th>
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>Score</th>}
                   <th style={thCenter}>{event.format === '1v1v1-single-elimination' ? 'Wins' : 'Wins'}</th>
+                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>TB</th>}
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>BH</th>}
                 </tr>
               </thead>
@@ -547,6 +548,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                       </td>
                       {event.format !== '1v1v1-single-elimination' && <td style={tdCenter}>{p.score}</td>}
                       <td style={tdCenter}>{p.wins || 0}</td>
+                      {event.format !== '1v1v1-single-elimination' && <td style={tdCenter}>{calculateTB(p, event.players)}</td>}
                       {event.format !== '1v1v1-single-elimination' && <td style={tdBH}>{calculateBuchholz(p, event.players)}</td>}
                     </tr>
                   );

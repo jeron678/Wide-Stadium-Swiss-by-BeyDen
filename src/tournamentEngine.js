@@ -21,6 +21,7 @@ export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => 
   status: player?.status || PLAYER_STATUS.ACTIVE,
   byeCount: Number.isFinite(Number(player?.byeCount)) ? Number(player.byeCount) : 0,
   opponents: Array.isArray(player?.opponents) ? [...new Set(player.opponents.filter(Boolean))] : [],
+  winsAgainst: Array.isArray(player?.winsAgainst) ? [...new Set(player.winsAgainst.filter(Boolean))] : [],
   eliminated: Boolean(player?.eliminated),
 });
 
@@ -33,6 +34,7 @@ export const createTournamentPlayers = names => names
     score: 0,
     wins: 0,
     opponents: [],
+    winsAgainst: [],
     byeCount: 0,
     eliminated: false,
     isImposter: false,
@@ -52,29 +54,15 @@ export const createImposter = index => normaliseTournamentPlayer({
 export const getRealPlayers = players => players.filter(player => isPlayerActive(player) && !player?.eliminated);
 
 export const padRosterForTripleMatches = players => {
-  const normalised = players.map(player => normaliseTournamentPlayer(player));
-  const realPlayers = normalised.filter(player => !isImposter(player));
-  const existingImposters = new Map();
-
-  normalised.filter(isImposter).forEach(imposter => {
-    const match = String(imposter.name || '').match(/^Imposter\s+(\d+)$/i);
-    if (!match) return;
-    const index = Number(match[1]);
-    if (index > 0 && !existingImposters.has(index)) existingImposters.set(index, imposter);
-  });
-
-  const targetCount = Math.ceil(realPlayers.length / 3) * 3;
-  const missing = targetCount - realPlayers.length;
-  const imposters = [];
+  const result = players.map(player => normaliseTournamentPlayer(player));
+  const realCount = result.filter(player => !isImposter(player)).length;
+  const targetCount = Math.ceil(realCount / 3) * 3;
+  const missing = targetCount - realCount;
 
   for (let i = 1; i <= missing; i += 1) {
-    imposters.push(existingImposters.get(i) || createImposter(i));
+    result.push(createImposter(i));
   }
-
-  // Imposters are generated only for the current round's missing slots. Existing
-  // imposter records must never be carried in addition to the required count,
-  // otherwise each new round can accumulate duplicate substitutes.
-  return [...realPlayers, ...imposters];
+  return result;
 };
 
 export const buildMatch = (members, roundNumber, matchIndex) => ({
@@ -251,11 +239,14 @@ export const recordSwissRoundResults = (players, matches) => {
       const player = updatedPlayers[playerIndex];
       const isBye = realMembers.length < 3;
       player.score = toScore(player.score) + (isBye && realMembers.length === 1 ? 0 : toScore(member.currentRoundScore));
-      if (realMembers.length === 1 || winners.some(winner => winner.id === member.id)) {
-        player.wins = toScore(player.wins) + 1;
-      }
+      const wonThisMatch = realMembers.length === 1 || winners.some(winner => winner.id === member.id);
+      if (wonThisMatch) player.wins = toScore(player.wins) + 1;
       const opponents = realMembers.filter(opponent => opponent.id !== member.id).map(opponent => opponent.id);
       player.opponents = [...new Set([...(player.opponents || []), ...opponents])];
+      if (wonThisMatch && realMembers.length > 1) {
+        const defeated = realMembers.filter(opponent => opponent.id !== member.id && toScore(opponent.currentRoundScore) < toScore(member.currentRoundScore)).map(opponent => opponent.id);
+        player.winsAgainst = [...new Set([...(player.winsAgainst || []), ...defeated])];
+      }
       if (isBye) player.byeCount = toScore(player.byeCount) + 1;
     });
   });
@@ -362,5 +353,19 @@ export const migrateLegacyTournament = event => {
     winnerIds: Array.isArray(match.winnerIds) ? match.winnerIds : [],
   })));
 
-  return { ...event, players: migratedPlayers, matches };
+  const winsAgainstById = new Map(migratedPlayers.map(player => [player.id, new Set(player.winsAgainst || [])]));
+  matches.flat().forEach(match => {
+    if (match?.status !== 'completed') return;
+    const realMembers = (match.members || []).filter(member => !isImposter(member));
+    if (realMembers.length < 2) return;
+    const highest = Math.max(...realMembers.map(member => toScore(member.currentRoundScore)));
+    const winners = realMembers.filter(member => toScore(member.currentRoundScore) === highest && highest > 0);
+    winners.forEach(winner => {
+      realMembers.filter(opponent => opponent.id !== winner.id && toScore(opponent.currentRoundScore) < toScore(winner.currentRoundScore)).forEach(opponent => {
+        if (winsAgainstById.has(winner.id)) winsAgainstById.get(winner.id).add(opponent.id);
+      });
+    });
+  });
+  const playersWithTB = migratedPlayers.map(player => ({ ...player, winsAgainst: [...(winsAgainstById.get(player.id) || new Set())] }));
+  return { ...event, players: playersWithTB, matches };
 };

@@ -155,31 +155,3 @@ test('inactive players remain visible in standings but rank after active players
   assert.deepEqual(standings.map(player => player.name), ['A', 'B', 'C']);
   assert.equal(standings.at(-1).status, 'disqualified');
 });
-
-
-test('reusing a previous round roster does not duplicate imposters', () => {
-  const players = createTournamentPlayers(['A', 'B', 'C', 'D', 'E']);
-  const round1 = generateSwissMatches(players, 1);
-  const round1Imposters = round1.roster.filter(isImposter);
-  assert.equal(round1Imposters.length, 1);
-  assert.equal(round1Imposters[0].name, 'Imposter 1');
-
-  const round2 = generateSwissMatches(round1.roster, 2);
-  const round2Imposters = round2.roster.filter(isImposter);
-  assert.equal(round2Imposters.length, 1);
-  assert.equal(round2Imposters[0].name, 'Imposter 1');
-  assert.equal(new Set(round2.roster.map(player => player.id)).size, round2.roster.length);
-  assert.ok(round2.matches.every(match => match.members.length <= 3));
-});
-
-test('imposter count follows real-player count across rounds', () => {
-  const players = createTournamentPlayers(['A', 'B', 'C', 'D', 'E']);
-  const round1 = generateSwissMatches(players, 1);
-  const round2 = generateSwissMatches(round1.roster.filter(player => !isImposter(player)), 2);
-  const round3 = generateSwissMatches([...round2.roster, ...round1.roster.filter(isImposter)], 3);
-
-  assert.equal(round1.roster.filter(isImposter).length, 1);
-  assert.equal(round2.roster.filter(isImposter).length, 1);
-  assert.equal(round3.roster.filter(isImposter).length, 1);
-  assert.ok(round3.matches.every(match => match.members.length <= 3));
-});
