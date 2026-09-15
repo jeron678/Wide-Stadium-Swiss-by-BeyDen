@@ -52,15 +52,29 @@ export const createImposter = index => normaliseTournamentPlayer({
 export const getRealPlayers = players => players.filter(player => isPlayerActive(player) && !player?.eliminated);
 
 export const padRosterForTripleMatches = players => {
-  const result = players.map(player => normaliseTournamentPlayer(player));
-  const realCount = result.filter(player => !isImposter(player)).length;
-  const targetCount = Math.ceil(realCount / 3) * 3;
-  const missing = targetCount - realCount;
+  const normalised = players.map(player => normaliseTournamentPlayer(player));
+  const realPlayers = normalised.filter(player => !isImposter(player));
+  const existingImposters = new Map();
+
+  normalised.filter(isImposter).forEach(imposter => {
+    const match = String(imposter.name || '').match(/^Imposter\s+(\d+)$/i);
+    if (!match) return;
+    const index = Number(match[1]);
+    if (index > 0 && !existingImposters.has(index)) existingImposters.set(index, imposter);
+  });
+
+  const targetCount = Math.ceil(realPlayers.length / 3) * 3;
+  const missing = targetCount - realPlayers.length;
+  const imposters = [];
 
   for (let i = 1; i <= missing; i += 1) {
-    result.push(createImposter(i));
+    imposters.push(existingImposters.get(i) || createImposter(i));
   }
-  return result;
+
+  // Imposters are generated only for the current round's missing slots. Existing
+  // imposter records must never be carried in addition to the required count,
+  // otherwise each new round can accumulate duplicate substitutes.
+  return [...realPlayers, ...imposters];
 };
 
 export const buildMatch = (members, roundNumber, matchIndex) => ({
