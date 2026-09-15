@@ -2,8 +2,6 @@ import { supabase } from './supabaseClient.js';
 
 import { EventConflictError, cloneEventData, isMissingRevisionColumnError, isMissingOwnerColumnError, isNoRowsConflict } from './eventServiceUtils.js';
 
-export { EventConflictError };
-
 async function legacyUpdateEvent(eventId, changes) {
   const { data, error } = await supabase
     .from('events')
@@ -155,3 +153,5 @@ export function subscribeToEvent(eventId, onEvent, onStatus) {
     supabase.removeChannel(channel);
   };
 }
+
+export { EventConflictError } from './eventServiceUtils.js';

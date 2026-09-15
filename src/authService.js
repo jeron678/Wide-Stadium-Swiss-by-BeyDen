@@ -1,7 +1,4 @@
 import { supabase } from './supabaseClient.js';
-import { authRequired, getCurrentUserId } from './authUtils.js';
-
-export { authRequired, getCurrentUserId };
 
 export async function getSession() {
   const { data, error } = await supabase.auth.getSession();
@@ -31,3 +28,5 @@ export function subscribeToAuth(onChange) {
   const { data } = supabase.auth.onAuthStateChange((_event, session) => onChange(session));
   return () => data.subscription.unsubscribe();
 }
+
+export { getCurrentUserId, authRequired } from './authUtils.js';
