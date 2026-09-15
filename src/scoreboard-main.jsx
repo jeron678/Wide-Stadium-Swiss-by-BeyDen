@@ -1,14 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import './scoreboard.css'
 import ScoreboardApp from './ScoreboardApp.jsx'
+import AuthGate from './AuthGate.jsx'
 
 const root = createRoot(document.getElementById('root'))
 
 root.render(
   <StrictMode>
-    <ScoreboardApp />
+    <AuthGate><ScoreboardApp /></AuthGate>
   </StrictMode>,
 )
 

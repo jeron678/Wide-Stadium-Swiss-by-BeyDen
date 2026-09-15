@@ -8,7 +8,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(process.cwd(), 'index.html'),
-        scoreboard: resolve(process.cwd(), 'scoreboard.html')
+        scoreboard: resolve(process.cwd(), 'scoreboard.html'),
+        referee: resolve(process.cwd(), 'referee.html')
       }
     }
   }
