@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { updateEvent, startMatch } from '../eventService.js';
 import { calculateBuchholz, getRoundStatus, validateCompletedRound, calculateSingleEliminationRounds } from '../tournamentUtils.js';
-import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults, applyEliminationRound, generateEliminationMatches, getEliminationWinnerIds, getStandings, ELIMINATION_FORMAT, isImposter } from '../tournamentEngine.js';
+import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults, applyEliminationRound, generateEliminationMatches, getEliminationWinnerIds, getStandings, ELIMINATION_FORMAT, isImposter, PLAYER_STATUS } from '../tournamentEngine.js';
 import { buildScoreboardUrl } from '../refereeScoreboard.js';
 import { buildRefereeDashboardUrl } from '../refereeDashboard.js';
 import {
@@ -14,6 +14,8 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
   const currentRoundRef = useRef(null);
   const [showEditPlayers, setShowEditPlayers] = useState(false);
   const [editPlayerNames, setEditPlayerNames] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [controlMessage, setControlMessage] = useState('');
   useEffect(() => {
     if (currentRoundRef.current) {
       currentRoundRef.current.scrollIntoView({ 
@@ -32,6 +34,43 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
     return event.matches.some(round => 
       round.some(match => match.status !== 'pending')
     );
+  };
+
+  const refreshTournament = async () => {
+    if (!event?.event_id || isRefreshing) return;
+    setIsRefreshing(true);
+    setControlMessage('Refreshing tournament…');
+    try {
+      const { getEvent } = await import('../eventService.js');
+      const latest = await getEvent(event.event_id);
+      // App-level realtime will normally apply this update; dispatch a lightweight
+      // event so the parent can refresh when this view is embedded elsewhere.
+      window.dispatchEvent(new CustomEvent('beyden:tournament-refresh', { detail: latest }));
+      setControlMessage('Latest tournament state loaded.');
+    } catch (error) {
+      setControlMessage(`Refresh failed: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setIsRefreshing(false);
+      window.setTimeout(() => setControlMessage(''), 2500);
+    }
+  };
+
+  const togglePause = async () => {
+    if (event.status === 'finished') return;
+    const nextStatus = event.status === 'paused' ? 'active' : 'paused';
+    const confirmed = window.confirm(nextStatus === 'paused'
+      ? 'Pause this tournament? New matches cannot be started while it is paused.'
+      : 'Resume this tournament? Referees will be able to continue matches.');
+    if (!confirmed) return;
+    try {
+      await updateEvent(event.event_id, { status: nextStatus }, event.revision, {
+        message: 'Another device changed the tournament status. Refresh and try again.',
+      });
+      setControlMessage(nextStatus === 'paused' ? 'Tournament paused.' : 'Tournament resumed.');
+      window.setTimeout(() => setControlMessage(''), 2500);
+    } catch (error) {
+      alert(`Unable to change tournament status: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   const handleUpdatePlayers = async () => {
@@ -80,6 +119,8 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
       return;
     }
 
+    if (!window.confirm('Matches have not started yet. Updating the roster will regenerate Round 1 and reset tournament progress. Continue?')) return;
+
     const updatedRealPlayers = createTournamentPlayers(newPlayerNames).map((newPlayer, index) => {
       const oldPlayer = realPlayers[index];
       return oldPlayer
@@ -108,6 +149,29 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
       return;
     }
     setShowEditPlayers(false);
+  };
+
+  const updatePlayerStatus = async (playerId, status) => {
+    if (event.status === 'finished') return;
+    const player = event.players.find(item => item.id === playerId);
+    if (!player || isImposter(player)) return;
+    const labels = {
+      [PLAYER_STATUS.ACTIVE]: 'Active',
+      [PLAYER_STATUS.WITHDRAWN]: 'Withdrawn',
+      [PLAYER_STATUS.NO_SHOW]: 'No-show',
+      [PLAYER_STATUS.DISQUALIFIED]: 'Disqualified',
+    };
+    if (status !== PLAYER_STATUS.ACTIVE && !window.confirm(`Mark ${player.name} as ${labels[status]}? This affects future pairings and does not alter the current match.`)) return;
+    const updatedPlayers = event.players.map(item => item.id === playerId ? { ...item, status } : item);
+    const updatedMatches = event.matches.map(round => round.map(match => ({
+      ...match,
+      members: (match.members || []).map(member => member.id === playerId ? { ...member, status } : member),
+    })));
+    try {
+      await updateEvent(event.event_id, { players: updatedPlayers, matches: updatedMatches }, event.revision, { message: 'Another referee changed player status. Refresh before trying again.' });
+    } catch (error) {
+      alert(`Unable to update player status: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   const renameEvent = async () => {
@@ -165,6 +229,10 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
     }
 
     const nextRoundNumber = Number(event.current_round) + 1;
+    const confirmed = window.confirm(nextRoundNumber > Number(event.max_rounds)
+      ? 'Finalize the tournament standings now?'
+      : `Confirm Round ${event.current_round} and generate Round ${nextRoundNumber}?`);
+    if (!confirmed) return;
     const updatedMatches = event.matches.map(round => round.map(match => ({
       ...match,
       members: (match.members || []).map(member => ({ ...member })),
@@ -197,7 +265,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
         return;
       }
 
-      const activePlayers = result.players.filter(player => !player.eliminated && !isImposter(player));
+      const activePlayers = result.players.filter(player => !player.eliminated && !isImposter(player) && (player.status || PLAYER_STATUS.ACTIVE) === PLAYER_STATUS.ACTIVE);
       if (activePlayers.length <= 1) {
         try {
           await updateEvent(event.event_id, {
@@ -289,12 +357,22 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => window.open(buildRefereeDashboardUrl(event.event_id), '_blank', 'noopener,noreferrer')} style={{...secondaryBtn}}>🎛 Referee Dashboard</button><button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button><button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button onClick={togglePause} disabled={isFinalized} style={{...secondaryBtn, opacity: isFinalized ? 0.5 : 1}}>{event.status === 'paused' ? '▶️ Resume' : '⏸ Pause'}</button>
+            <button onClick={refreshTournament} disabled={isRefreshing} style={{...secondaryBtn}}>{isRefreshing ? '↻ Refreshing…' : '↻ Refresh'}</button>
+            <button onClick={() => window.open(buildRefereeDashboardUrl(event.event_id), '_blank', 'noopener,noreferrer')} style={{...secondaryBtn}}>🎛 Referee Dashboard</button>
+            <button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button>
+            <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
             <button onClick={onBack} style={utilBtn}>Main Menu</button>
           </div>
         </div>
       </div>
+
+      {(event.status === 'paused' || controlMessage) && (
+        <div style={{ position: 'sticky', top: '60px', zIndex: 90, maxWidth: '1000px', margin: '0 auto', padding: '8px 15px', background: event.status === 'paused' ? '#78350f' : '#1e293b', border: '1px solid #475569', borderRadius: '0 0 10px 10px', color: '#f8fafc', fontSize: '0.8rem', textAlign: 'center' }}>
+          {event.status === 'paused' ? '⏸ Tournament paused — existing results are preserved.' : controlMessage}
+        </div>
+      )}
 
       <div style={roundScrollArea}>
         {event.matches.map((roundMatches, rIdx) => {
@@ -350,7 +428,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                     })}
                     {isTie && <div style={{ color: '#fbbf24', fontSize: '0.75rem', fontWeight: 700, marginTop: '8px' }}>⚠️ TIE — select a clear winner before advancing.</div>}
                     {isTie && !isFinalized && <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>{m.members.filter(member => winnerIds.includes(member.id)).map(member => <button key={member.id} onClick={() => resolveEliminationTie(rIdx, mIdx, member.id)} style={{ ...playBtn, background: '#b45309' }}>🏆 {member.name}</button>)}</div>}
-                    {!isCompleted && !isFinalized && (
+                    {!isCompleted && !isFinalized && event.status !== 'paused' && (
                       <button 
                         onClick={async () => {
                           if (m.status === 'completed' || event.status === 'finished') return;
@@ -446,6 +524,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                       <td style={tdRank}>#{i + 1}</td>
                       <td style={tdName}>
                         {isEliminated ? '❌ ' : ''}{p.name}
+                        {p.status && p.status !== PLAYER_STATUS.ACTIVE && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#fbbf24', fontWeight: 800 }}>{p.status === PLAYER_STATUS.NO_SHOW ? 'NO-SHOW' : p.status.toUpperCase()}</span>}
                       </td>
                       {event.format !== '1v1v1-single-elimination' && <td style={tdCenter}>{p.score}</td>}
                       <td style={tdCenter}>{p.wins || 0}</td>
@@ -467,7 +546,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                 <h3 style={{ margin: 0 }}>Edit Players</h3>
                 <p style={{ margin: '6px 0 0', color: '#cbd5e1', fontSize: '0.85rem' }}>
                   {hasMatchesStarted() 
-                    ? "Edit individual player names. Cannot change player count once matches have started." 
+                    ? "Edit player names and status. Inactive players are excluded from future pairings; current matches are preserved." 
                     : "Update the player roster. One name per line. Changing player count will reset matches."
                   }
                 </p>
@@ -489,9 +568,29 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                       borderRadius: '8px',
                       border: '1px solid #334155'
                     }}>
-                      <span style={{ fontSize: '0.9rem', color: '#f8fafc' }}>
-                        {index + 1}. {player.name}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <span style={{ fontSize: '0.9rem', color: '#f8fafc' }}>
+                          {index + 1}. {player.name}
+                        </span>
+                        {(player.status && player.status !== PLAYER_STATUS.ACTIVE) && (
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#fbbf24' }}>
+                            {player.status === PLAYER_STATUS.NO_SHOW ? 'NO-SHOW' : player.status.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <select
+                          value={player.status || PLAYER_STATUS.ACTIVE}
+                          onChange={(e) => updatePlayerStatus(player.id, e.target.value)}
+                          style={{ background: '#0f172a', color: '#f8fafc', border: '1px solid #475569', borderRadius: '6px', padding: '6px', fontSize: '0.75rem' }}
+                          disabled={isFinalized}
+                          aria-label={`Status for ${player.name}`}
+                        >
+                          <option value={PLAYER_STATUS.ACTIVE}>Active</option>
+                          <option value={PLAYER_STATUS.WITHDRAWN}>Withdrawn</option>
+                          <option value={PLAYER_STATUS.NO_SHOW}>No-show</option>
+                          <option value={PLAYER_STATUS.DISQUALIFIED}>Disqualified</option>
+                        </select>
                       <button 
                         onClick={() => {
                           const newName = prompt('Enter new name:', player.name);
@@ -513,6 +612,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                       >
                         ✏️ Edit
                       </button>
+                      </div>
                     </div>
                   ))}
                 </div>

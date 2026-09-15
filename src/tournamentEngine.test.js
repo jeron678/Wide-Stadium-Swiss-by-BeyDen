@@ -138,3 +138,20 @@ test('Legacy events migrate opponent names to stable IDs', () => {
   assert.equal(SWISS_FORMAT, '1v1v1-swiss');
   assert.equal(ELIMINATION_FORMAT, '1v1v1-single-elimination');
 });
+
+test('player statuses exclude inactive players from future pairings', () => {
+  const players = createTournamentPlayers(['A', 'B', 'C', 'D']);
+  players[1].status = 'withdrawn';
+  const { matches } = generateSwissMatches(players, 2);
+  const ids = matches.flatMap(match => match.members).filter(member => !member.isImposter).map(member => member.id);
+  assert.equal(ids.includes(players[1].id), false);
+  assert.equal(ids.length, 3);
+});
+
+test('inactive players remain visible in standings but rank after active players', () => {
+  const players = createTournamentPlayers(['A', 'B', 'C']);
+  players[2].status = 'disqualified';
+  const standings = getStandings(players, SWISS_FORMAT);
+  assert.deepEqual(standings.map(player => player.name), ['A', 'B', 'C']);
+  assert.equal(standings.at(-1).status, 'disqualified');
+});

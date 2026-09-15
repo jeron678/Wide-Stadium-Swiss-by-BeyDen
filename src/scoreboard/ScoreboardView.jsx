@@ -30,6 +30,10 @@ export function ScoreboardView({ setView, activeMatch, event_id, matchLocked = f
     }
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(() => {
+    if (!isTournamentMode || !activeMatch?.started_at) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(activeMatch.started_at).getTime()) / 1000));
+  });
 
   useEffect(() => {
     document.documentElement.classList.add('scoreboard-mode');
@@ -51,6 +55,16 @@ export function ScoreboardView({ setView, activeMatch, event_id, matchLocked = f
   useEffect(() => {
     if (isTournamentMode) setScores(activeMatch.members.map(m => Number(m.currentRoundScore || 0)));
   }, [activeMatch, isTournamentMode]);
+
+  useEffect(() => {
+    if (!isTournamentMode || !activeMatch?.started_at) return undefined;
+    const tick = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - new Date(activeMatch.started_at).getTime()) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [activeMatch?.started_at, isTournamentMode]);
+
+  const elapsedText = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
 
   const colors = isColorblind ? ['#0072B2', '#D55E00', '#F0E442'] : ['#2563eb', '#ef4444', '#10b981'];
   const patterns = [
@@ -80,6 +94,7 @@ export function ScoreboardView({ setView, activeMatch, event_id, matchLocked = f
       return;
     }
 
+    if (!window.confirm('Submit this match result and lock the scoreboard?')) return;
     setIsSubmitting(true);
     try {
       await submitMatchResult(event_id, activeMatch.revision, activeMatch.roundIdx, activeMatch.matchIdx, scores);
@@ -100,6 +115,7 @@ export function ScoreboardView({ setView, activeMatch, event_id, matchLocked = f
       <div className="landscape-lock scoreboard-root" style={sbRotationWrapper}>
         <div className="scoreboard-overlay" style={sbOverlay}>
           <div style={sbMetaPill}>{scoreboardMeta ? `${scoreboardMeta.eventName || 'Tournament'} • R${scoreboardMeta.roundNumber} • STADIUM ${scoreboardMeta.stadiumNumber}` : 'MANUAL SCOREBOARD'}</div>
+          {isTournamentMode && <div style={sbMetaPill}>⏱ {elapsedText}</div>}
           <button onClick={() => setView(isTournamentMode ? 'ACTIVE' : 'MAIN')} style={sbSmallBtn}>← Exit</button>
           {!isTournamentMode && (
             <button onClick={() => { const nextMode = mode === 2 ? 3 : 2; setStandaloneMode(nextMode); setScores(Array.from({ length: nextMode }, () => 0)); }} style={sbSmallBtn}>

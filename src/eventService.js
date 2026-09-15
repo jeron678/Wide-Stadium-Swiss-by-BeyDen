@@ -112,6 +112,9 @@ export async function startMatch(event, roundIdx, matchIdx) {
 
 export async function submitMatchResult(eventId, expectedRevision, roundIdx, matchIdx, scores) {
   const event = await getEvent(eventId);
+  if (event?.status === 'paused') {
+    throw new Error('This tournament is currently paused. Resume it before submitting match results.');
+  }
   if (expectedRevision != null && Number.isInteger(Number(event.revision)) && Number(event.revision) !== Number(expectedRevision)) {
     throw new EventConflictError('The tournament changed while this scoreboard was open. The result was not overwritten.');
   }

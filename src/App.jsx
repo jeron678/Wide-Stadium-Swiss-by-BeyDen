@@ -56,6 +56,16 @@ export default function App({ authSession }) {
 
   // REALTIME SUBSCRIPTION: Listen for changes at the App level
   useEffect(() => {
+    const handleManualRefresh = event => {
+      if (event?.detail?.event_id && (!currentEvent?.event_id || String(event.detail.event_id) === String(currentEvent.event_id))) {
+        setCurrentEvent(migrateLegacyTournament(event.detail));
+      }
+    };
+    window.addEventListener('beyden:tournament-refresh', handleManualRefresh);
+    return () => window.removeEventListener('beyden:tournament-refresh', handleManualRefresh);
+  }, [currentEvent?.event_id]);
+
+  useEffect(() => {
     document.title = "Beyblade X SG"
     if (!currentEvent?.event_id) return;
 
