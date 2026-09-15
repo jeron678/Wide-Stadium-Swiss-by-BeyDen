@@ -1,10 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { CATEGORIES, GENERAL_GROUPS } from '../appConstants.js';
-import {
-  filterGrid, checkboxLabel, groupWrapper, groupHeader, subgroupWrapper, subgroupHeader, selectAllContainer, selectAllText, subgroupList, itemList,
-  modalOverlay, modalDialog, modalHeader, modalCloseBtn, filterTable, filterTableHeader, filterTableRow, filterTableCell, modalActions, modalActionBtn,
-  resultContainer, resultBadge, resultList, resultItem, partType, deckGrid, deckCard, deckBtn, getPartColor
-} from '../styles/appStyles.js';
 
 export const buildItemGroups = (matrix) => {
   const groups = {};
@@ -286,14 +281,9 @@ export function BladeRandomizer({ onBack }) {
     const usedBits = new Set();
     const pickUnique = (list, set) => {
       if (!list || list.length === 0) return null;
-
-      if (allowRepeats) {
-        return pick(list);
-      }
-
-      const available = list.filter(p => !set.has(p));
+      if (allowRepeats) return pick(list);
+      const available = list.filter(part => !set.has(part));
       if (available.length === 0) return null;
-
       const selection = pick(available);
       set.add(selection);
       return selection;
@@ -336,19 +326,16 @@ export function BladeRandomizer({ onBack }) {
       } else {
         const bitsList = getGeneralParts('Bits');
         const integratedList = getGeneralParts('Integrated-Bit');
-        const forceSimpleRatchet = cat === 'UX' && bey.parts.find(p => p.type === 'Blade')?.name === 'Clock Mirage';
+        const forceSimpleRatchet = cat === 'UX' && bey.parts.find(part => part.type === 'Blade')?.name === 'Clock Mirage';
         const ratchetCandidates = forceSimpleRatchet
           ? getGeneralPartsBySubcategory('Ratchets', 'Simple')
           : getGeneralParts('Ratchets');
-
         const tryIntegratedFirst = !forceSimpleRatchet && Math.random() < 0.3;
         let partSelected = null;
 
         if (tryIntegratedFirst) {
           partSelected = pickUnique(integratedList, usedBits);
-          if (partSelected) {
-            bey.parts.push({ type: 'Integrated-Bit', name: partSelected });
-          }
+          if (partSelected) bey.parts.push({ type: 'Integrated-Bit', name: partSelected });
         }
 
         if (!partSelected) {
@@ -368,21 +355,16 @@ export function BladeRandomizer({ onBack }) {
       while (categories.length > 0) {
         const pickIndex = Math.floor(Math.random() * categories.length);
         const cat = categories.splice(pickIndex, 1)[0];
-        const missingMessage = getMissingBladePartMessage(cat);
-        if (missingMessage) continue;
+        if (getMissingBladePartMessage(cat)) continue;
         const bey = buildBey(cat);
-        if (bey && bey.parts.every(p => p.name)) {
-          return bey;
-        }
+        if (bey && bey.parts.every(part => part.name)) return bey;
       }
       return null;
     };
 
     for (let i = 0; i < 3; i++) {
       const bey = buildSlot();
-      if (!bey) {
-        return alert("Unable to generate a valid 3on3 deck with the current selection. Try enabling more parts or allow repeats.");
-      }
+      if (!bey) return alert("Unable to generate a valid 3on3 deck with the current selection. Try enabling more parts or allow repeats.");
       deck.push(bey);
     }
 
@@ -398,9 +380,9 @@ export function BladeRandomizer({ onBack }) {
 
   return (
     <div style={card}>
-      <button onClick={onBack} style={backBtn}>← Back</button>
+      <button onClick={onBack} style={backBtn}>Back</button>
       <h2 style={sectionTitle}>Beyblade Combo Randomizer</h2>
-      
+
       <div style={filterGrid}>
         {CATEGORIES.map(cat => (
           <label key={cat} style={checkboxLabel}>
@@ -412,7 +394,7 @@ export function BladeRandomizer({ onBack }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
         <button onClick={() => setShowFilterModal(true)} style={secondaryBtn}>
-          🔧 Choose Items ({selectedItemCount}/{totalItemCount})
+          Choose Items ({selectedItemCount}/{totalItemCount})
         </button>
 
         {showFilterModal && (
@@ -423,7 +405,7 @@ export function BladeRandomizer({ onBack }) {
                   <h3 style={{ margin: 0 }}>Item Selector</h3>
                   <p style={{ margin: '6px 0 0', color: '#cbd5e1', fontSize: '0.85rem' }}>Toggle specific parts to include in randomization.</p>
                 </div>
-                <button onClick={() => setShowFilterModal(false)} style={modalCloseBtn}>✕</button>
+                <button onClick={() => setShowFilterModal(false)} style={modalCloseBtn}>X</button>
               </div>
 
               <div style={{ maxHeight: '60vh', overflowY: 'auto', marginBottom: '20px' }}>
@@ -433,16 +415,14 @@ export function BladeRandomizer({ onBack }) {
                     <div key={category} style={groupWrapper}>
                       <button onClick={() => toggleCategoryExpansion(category)} style={groupHeader}>
                         <span>{category}</span>
-                        <span>{categoryOpen ? '▾' : '▸'}</span>
+                        <span>{categoryOpen ? '-' : '+'}</span>
                       </button>
                       {categoryOpen && (
                         <div style={subgroupList}>
                           {subgroups.filter(group => group.items.length > 0).map(group => {
                             const subgroupKey = `${group.category}||${group.subCategory}`;
                             const subgroupOpen = expandedSubgroups[subgroupKey] ?? false;
-                            
-                            // Logic to check if all items in this specific subcategory are selected
-                            const allSubItemsSelected = group.items.every(item => 
+                            const allSubItemsSelected = group.items.every(item =>
                               isItemSelected(itemKey(group.category, group.subCategory, item))
                             );
 
