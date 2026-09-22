@@ -5,6 +5,7 @@ import { buildScoreboardUrl } from './refereeScoreboard.js';
 import { buildRefereeDashboardUrl, getDashboardMatches, getMatchDisplayStatus, getMatchScoreText, parseRefereeDashboardParams } from './refereeDashboard.js';
 import { signOut } from './authService.js';
 import './refereeDashboard.css';
+import ThemeToggle from './ThemeToggle.jsx';
 
 function statusClass(status) {
   return status === 'LIVE' ? 'ref-status-live' : status === 'COMPLETED' ? 'ref-status-completed' : 'ref-status-pending';
@@ -67,7 +68,7 @@ export default function RefereeDashboardApp({ authSession }) {
   if (!eventId) {
     return (
       <main className="ref-dashboard-shell">
-        <header className="ref-dashboard-header"><div><div className="ref-brand">BEYDEN</div><h1>Referee Dashboard</h1><p>Select a tournament to manage its stadium scoreboards.</p></div></header>
+        <header className="ref-dashboard-header"><div><div className="ref-brand">BEYDEN</div><h1>Referee Dashboard</h1><p>Select a tournament to manage its stadium scoreboards.</p></div><ThemeToggle compact /></header>
         <section className="ref-event-picker">
           {error && <div className="ref-error">{error}</div>}
           {!events.length && !error && <div className="ref-empty">No tournaments found.</div>}
@@ -88,7 +89,7 @@ export default function RefereeDashboardApp({ authSession }) {
           <h1>{event.name || 'Tournament'}</h1>
           <p>Revision {event.revision ?? 'legacy'} · Round {event.current_round || 1} · {event.status || 'active'}</p>
         </div>
-        <div className="ref-header-actions">
+        <div className="ref-header-actions"><ThemeToggle compact />
           <button className="ref-action" onClick={() => window.location.reload()}>↻ Refresh</button><button className="ref-action" onClick={async () => { try { await signOut(); } catch (err) { setError(err?.message || 'Unable to sign out.'); } }}>↪ Sign Out</button>
           <button className="ref-action" onClick={() => copy(buildRefereeDashboardUrl(event.event_id), 'dashboard')}>{copied === 'dashboard' ? '✓ Copied' : '🔗 Share Dashboard'}</button>
         </div>

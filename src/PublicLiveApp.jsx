@@ -5,6 +5,7 @@ import { calculateTB, calculateBuchholz } from './tournamentUtils.js';
 import { parsePublicLiveEventId, getLiveMatchCounts, getLiveMatchMembers } from './publicLiveUtils.js';
 import { getPublicPlayerStats } from './publicStatsUtils.js';
 import './public-live.css';
+import ThemeToggle from './ThemeToggle.jsx';
 
 function displayScore(member) {
   return Number(member?.currentRoundScore || 0);
@@ -59,7 +60,7 @@ export default function PublicLiveApp() {
     <div className="public-live-shell">
       <header className="public-live-header">
         <div><div className="public-live-brand">BEYDEN • LIVE</div><h1>{event.name}</h1><div className="public-live-subtitle">Round {event.current_round} • {event.status === 'paused' ? 'Paused' : event.status === 'finished' ? 'Finished' : 'Live'}</div></div>
-        <div className="public-live-actions"><button onClick={() => navigator.clipboard?.writeText(window.location.href)}>🔗 Copy Link</button><button onClick={() => window.location.href = '/'}>BeyDen</button></div>
+        <div className="public-live-actions"><ThemeToggle compact /><button onClick={() => navigator.clipboard?.writeText(window.location.href)}>🔗 Copy Link</button><button onClick={() => window.location.href = '/'}>BeyDen</button></div>
       </header>
       <main className="public-live-content">
         <section className="public-live-stats"><div><strong>{counts.live}</strong><span>Live</span></div><div><strong>{counts.completed}</strong><span>Completed</span></div><div><strong>{counts.pending}</strong><span>Pending</span></div><div><strong>{event.players.filter(p => !isImposter(p) && (p.status || PLAYER_STATUS.ACTIVE) === PLAYER_STATUS.ACTIVE).length}</strong><span>Active Players</span></div></section>

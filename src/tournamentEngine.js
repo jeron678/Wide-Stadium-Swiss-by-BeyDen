@@ -20,6 +20,7 @@ export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => 
   isImposter: Boolean(player?.isImposter),
   status: player?.status || PLAYER_STATUS.ACTIVE,
   byeCount: Number.isFinite(Number(player?.byeCount)) ? Number(player.byeCount) : 0,
+  losses: Number.isFinite(Number(player?.losses)) ? Number(player.losses) : 0,
   opponents: Array.isArray(player?.opponents) ? [...new Set(player.opponents.filter(Boolean))] : [],
   winsAgainst: Array.isArray(player?.winsAgainst) ? [...new Set(player.winsAgainst.filter(Boolean))] : [],
   eliminated: Boolean(player?.eliminated),
@@ -33,6 +34,7 @@ export const createTournamentPlayers = names => names
     name,
     score: 0,
     wins: 0,
+    losses: 0,
     opponents: [],
     winsAgainst: [],
     byeCount: 0,
@@ -45,7 +47,9 @@ export const createImposter = index => normaliseTournamentPlayer({
   name: `Imposter ${index}`,
   score: 0,
   wins: 0,
+  losses: 0,
   opponents: [],
+  winsAgainst: [],
   byeCount: 0,
   eliminated: false,
   isImposter: true,
@@ -53,16 +57,35 @@ export const createImposter = index => normaliseTournamentPlayer({
 
 export const getRealPlayers = players => players.filter(player => isPlayerActive(player) && !player?.eliminated);
 
+/**
+ * Keep the event roster stable while ensuring that only the exact number of
+ * physical substitute slots required for the current active-player count exist.
+ *
+ * Imposters are deliberately recreated only when a slot did not already exist.
+ * Existing Imposter 1/2 records keep their IDs, which prevents duplicate
+ * placeholder records from accumulating between rounds.
+ */
 export const padRosterForTripleMatches = players => {
-  const result = players.map(player => normaliseTournamentPlayer(player));
-  const realCount = result.filter(player => !isImposter(player)).length;
-  const targetCount = Math.ceil(realCount / 3) * 3;
-  const missing = targetCount - realCount;
+  const normalised = players.map(player => normaliseTournamentPlayer(player));
+  const realPlayers = normalised.filter(player => !isImposter(player));
+  const existingImposters = normalised
+    .filter(isImposter)
+    .sort((a, b) => {
+      const ai = Number(String(a.name || '').match(/(\\d+)$/)?.[1] || 99);
+      const bi = Number(String(b.name || '').match(/(\\d+)$/)?.[1] || 99);
+      return ai - bi;
+    });
 
-  for (let i = 1; i <= missing; i += 1) {
-    result.push(createImposter(i));
+  const activeRealCount = getRealPlayers(realPlayers).length;
+  const requiredImposterCount = activeRealCount % 3 === 0 ? 0 : 3 - (activeRealCount % 3);
+  const imposters = [];
+
+  for (let index = 0; index < requiredImposterCount; index += 1) {
+    const existing = existingImposters[index];
+    imposters.push(existing ? { ...existing, name: `Imposter ${index + 1}`, isImposter: true } : createImposter(index + 1));
   }
-  return result;
+
+  return [...realPlayers, ...imposters];
 };
 
 export const buildMatch = (members, roundNumber, matchIndex) => ({
@@ -240,7 +263,11 @@ export const recordSwissRoundResults = (players, matches) => {
       const isBye = realMembers.length < 3;
       player.score = toScore(player.score) + (isBye && realMembers.length === 1 ? 0 : toScore(member.currentRoundScore));
       const wonThisMatch = realMembers.length === 1 || winners.some(winner => winner.id === member.id);
-      if (wonThisMatch) player.wins = toScore(player.wins) + 1;
+      if (wonThisMatch) {
+        player.wins = toScore(player.wins) + 1;
+      } else {
+        player.losses = toScore(player.losses) + 1;
+      }
       const opponents = realMembers.filter(opponent => opponent.id !== member.id).map(opponent => opponent.id);
       player.opponents = [...new Set([...(player.opponents || []), ...opponents])];
       if (wonThisMatch && realMembers.length > 1) {

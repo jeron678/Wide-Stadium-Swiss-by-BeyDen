@@ -5,6 +5,7 @@ import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults,
 import { buildScoreboardUrl } from '../refereeScoreboard.js';
 import { buildRefereeDashboardUrl } from '../refereeDashboard.js';
 import { buildPublicLiveUrl } from '../publicLiveUtils.js';
+import { shuffle } from '../tournamentUtils.js';
 import {
   activeLayout, stickyHeader, headerContent, headerTitle, utilBtn, roundScrollArea, currentRound, completedRound, roundHeader, roundBadge, statusTag, matchGrid, matchCard, matchLabel, matchRow, roundActionBtn, stickyButtonContainer, standingContainer, standingsTable, th, thLeft, thCenter, tr, tdRank, tdName, tdCenter, tdBH, pName, sectionTitle, miniInput, secondaryBtn, modalOverlay, modalDialog, modalHeader, modalCloseBtn, modalActions, modalActionBtn, textArea, playBtn, editBtn, scoreDisplay, matchLinkRow, matchLinkBtn, primaryBtn, tableWrapper
 } from '../styles/appStyles.js';
@@ -57,7 +58,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
   };
 
   const togglePublicLive = async () => {
-    const next = !Boolean(event.public_enabled);
+    const next = !event.public_enabled;
     const confirmed = window.confirm(next ? 'Enable the public live page? Anyone with the link will be able to view tournament standings and match progress.' : 'Disable the public live page? Existing shared links will stop working.');
     if (!confirmed) return;
     try {
@@ -88,6 +89,12 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
     } catch (error) {
       alert(`Unable to change tournament status: ${error?.message || 'Unknown error'}`);
     }
+  };
+
+  const reshufflePlayerNames = () => {
+    const names = editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean);
+    if (names.length < 2) return;
+    setEditPlayerNames(shuffle(names).join('\n'));
   };
 
   const handleUpdatePlayers = async () => {
@@ -141,7 +148,19 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
     const updatedRealPlayers = createTournamentPlayers(newPlayerNames).map((newPlayer, index) => {
       const oldPlayer = realPlayers[index];
       return oldPlayer
-        ? { ...oldPlayer, name: newPlayer.name, score: 0, wins: 0, opponents: [], byeCount: 0, eliminated: false, isImposter: false }
+        ? {
+          ...oldPlayer,
+          name: newPlayer.name,
+          score: 0,
+          wins: 0,
+          losses: 0,
+          opponents: [],
+          winsAgainst: [],
+          byeCount: 0,
+          eliminated: false,
+          isImposter: false,
+          status: PLAYER_STATUS.ACTIVE,
+        }
         : newPlayer;
     });
 
@@ -527,7 +546,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                 <tr>
                   <th style={th}>Rank</th>
                   <th style={thLeft}>Player</th>
-                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>Score</th>}
+                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>Points</th>}
                   <th style={thCenter}>{event.format === '1v1v1-single-elimination' ? 'Wins' : 'Wins'}</th>
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>TB</th>}
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>BH</th>}
@@ -639,13 +658,28 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                 </div>
               ) : (
                 // Show textarea when matches haven't started
-                <textarea
-                  placeholder="Player 1&#10;Player 2&#10;..."
-                  value={editPlayerNames}
-                  onChange={(e) => setEditPlayerNames(e.target.value)}
-                  rows={10}
-                  style={textArea}
-                />
+                <>
+                  <textarea
+                    placeholder="Player 1\nPlayer 2\n..."
+                    value={editPlayerNames}
+                    onChange={(e) => setEditPlayerNames(e.target.value)}
+                    rows={10}
+                    style={textArea}
+                  />
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={reshufflePlayerNames}
+                    disabled={editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean).length < 2}
+                    style={{ ...secondaryBtn, opacity: editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean).length < 2 ? 0.5 : 1 }}
+                  >
+                    🔀 Reshuffle Name List
+                  </button>
+                  <span style={{ alignSelf: 'center', color: '#94a3b8', fontSize: '0.75rem' }}>
+                    Randomizes the order only. Click Update Players to apply it.
+                  </span>
+                  </div>
+                </>
               )}
             </div>
 

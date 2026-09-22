@@ -19,6 +19,7 @@ import {
 } from './styles/appStyles.js';
 import { buildItemGroups } from './views/BladeRandomizer.jsx';
 import './scoreboard.css';
+import ThemeToggle from './ThemeToggle.jsx';
 
 // --- MAIN APP ---
 export default function App({ authSession }) {
@@ -143,6 +144,7 @@ export default function App({ authSession }) {
           <div style={heroSection}>
             <h1 style={heroTitle}>🏆 Beyblade Manager <span style={brandSpan}>by BeyDen</span></h1>
             <div style={buttonGroup}>
+              <ThemeToggle />
               <button onClick={() => requireSignIn('CREATE')} style={primaryBtn}>➕ Create New Event</button>
               <button onClick={fetchEvents} style={secondaryBtn}>📋 View Tournaments</button>
               <button onClick={() => {setRefereeData(null); setView('SCOREBOARD')}} style={accentBtn}>⏱ Live Scoreboard (Public)</button>
