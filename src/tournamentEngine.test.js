@@ -35,6 +35,15 @@ test('roster padding never creates more than two placeholders', () => {
   }
 });
 
+test('Round 1 Swiss pairings respect reshuffled roster order instead of alphabetical order', () => {
+  const alphabetical = generateSwissMatches(makePlayers(['A', 'B', 'C', 'D', 'E', 'F']), 1);
+  const reshuffled = generateSwissMatches(makePlayers(['A', 'D', 'B', 'E', 'C', 'F']), 1);
+  const groupNames = matches => matches.map(match => match.members.filter(member => !isImposter(member)).map(member => member.name).sort().join('|')).sort();
+  assert.notDeepEqual(groupNames(reshuffled.matches), groupNames(alphabetical.matches));
+  assert.deepEqual(reshuffled.matches[0].members.filter(member => !isImposter(member)).map(member => member.name), ['A', 'D', 'B']);
+  assert.deepEqual(reshuffled.matches[1].members.filter(member => !isImposter(member)).map(member => member.name), ['E', 'C', 'F']);
+});
+
 test('Swiss initial round distributes byes instead of putting all placeholders together', () => {
   const players = makePlayers(['A', 'B', 'C', 'D']);
   const { roster, matches } = generateSwissMatches(players, 1);

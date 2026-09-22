@@ -17,6 +17,10 @@ export const isPlayerActive = player => !isImposter(player) && (player?.status |
 
 export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => ({
   ...normalisePlayer(player, fallbackPrefix),
+  // seedOrder is the roster order used as the final pairing tie-breaker.
+  // It is deliberately separate from player name so the pairing engine does
+  // not silently turn a shuffled name list back into alphabetical order.
+  seedOrder: Number.isFinite(Number(player?.seedOrder)) ? Number(player.seedOrder) : Number.MAX_SAFE_INTEGER,
   isImposter: Boolean(player?.isImposter),
   status: player?.status || PLAYER_STATUS.ACTIVE,
   byeCount: Number.isFinite(Number(player?.byeCount)) ? Number(player.byeCount) : 0,
@@ -29,9 +33,10 @@ export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => 
 export const createTournamentPlayers = names => names
   .map(name => String(name || '').trim())
   .filter(Boolean)
-  .map(name => normaliseTournamentPlayer({
+  .map((name, index) => normaliseTournamentPlayer({
     id: createId('player'),
     name,
+    seedOrder: index,
     score: 0,
     wins: 0,
     losses: 0,
@@ -143,10 +148,25 @@ const pairCost = (a, b, allPlayers) => {
 };
 
 const compareSeedOrder = (a, b, allPlayers) => {
-  const base = compareSwissPlayers(a, b, allPlayers);
-  if (base !== 0) return base;
+  // Pairing priority is still based on tournament standing. However, when
+  // players are otherwise equal, preserve the explicit roster/seed order
+  // instead of falling back to name alphabetical order. This is what makes
+  // Edit Players -> Reshuffle Name List actually affect Round 1 pairings.
+  const scoreDiff = toScore(b.score) - toScore(a.score);
+  if (scoreDiff !== 0) return scoreDiff;
+
+  const winsDiff = toScore(b.wins) - toScore(a.wins);
+  if (winsDiff !== 0) return winsDiff;
+
+  const buchholzDiff = calculateBuchholz(b, allPlayers) - calculateBuchholz(a, allPlayers);
+  if (buchholzDiff !== 0) return buchholzDiff;
+
   const byeDiff = toScore(a.byeCount) - toScore(b.byeCount);
   if (byeDiff !== 0) return byeDiff;
+
+  const seedDiff = toScore(a.seedOrder) - toScore(b.seedOrder);
+  if (seedDiff !== 0) return seedDiff;
+
   return String(a.id).localeCompare(String(b.id));
 };
 
@@ -358,7 +378,7 @@ export const getStandings = (players, format = SWISS_FORMAT) => {
 
 export const migrateLegacyTournament = event => {
   if (!event) return event;
-  const players = (event.players || []).map((player, index) => normaliseTournamentPlayer(player, `player-${index + 1}`));
+  const players = (event.players || []).map((player, index) => normaliseTournamentPlayer({ ...player, seedOrder: Number.isFinite(Number(player?.seedOrder)) ? Number(player.seedOrder) : index }, `player-${index + 1}`));
   const idByName = new Map(players.filter(player => player.name).map(player => [player.name, player.id]));
 
   const migratedPlayers = players.map(player => ({
