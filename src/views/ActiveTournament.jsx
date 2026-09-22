@@ -145,24 +145,12 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
 
     if (!window.confirm('Matches have not started yet. Updating the roster will regenerate Round 1 and reset tournament progress. Continue?')) return;
 
-    const updatedRealPlayers = createTournamentPlayers(newPlayerNames).map((newPlayer, index) => {
-      const oldPlayer = realPlayers[index];
-      return oldPlayer
-        ? {
-          ...oldPlayer,
-          name: newPlayer.name,
-          score: 0,
-          wins: 0,
-          losses: 0,
-          opponents: [],
-          winsAgainst: [],
-          byeCount: 0,
-          eliminated: false,
-          isImposter: false,
-          status: PLAYER_STATUS.ACTIVE,
-        }
-        : newPlayer;
-    });
+    // Before Round 1 starts there is no match history to preserve. Recreate the
+    // real-player roster in the exact order shown in the editor. This is important
+    // for the Reshuffle Name List feature: keeping the old player IDs here can leave
+    // the pairing engine with the same seed identities, making the reshuffle appear
+    // not to affect the generated matchups.
+    const updatedRealPlayers = createTournamentPlayers(newPlayerNames);
 
     const initial = event.format === ELIMINATION_FORMAT
       ? generateEliminationMatches(updatedRealPlayers, 1)
