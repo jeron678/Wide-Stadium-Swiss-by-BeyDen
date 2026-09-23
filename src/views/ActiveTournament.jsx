@@ -358,48 +358,77 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
       )}
 
       {showTournamentControls && (
-      <div style={stickyHeader}>
-        <div style={headerContent}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2 style={headerTitle}>{event.name}</h2>
-              <button className="rename-btn" onClick={renameEvent} style={{ ...utilBtn, padding: '8px 12px', fontSize: '0.85rem' }}>
-                ✏️ Rename
+        <>
+          <button
+            type="button"
+            className="tournament-controls-backdrop"
+            onClick={() => setShowTournamentControls(false)}
+            aria-label="Close tournament controls"
+          />
+          <aside
+            className="tournament-controls-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Tournament controls"
+          >
+            <div className="tournament-controls-panel-header">
+              <div>
+                <div className="tournament-controls-panel-kicker">BEYDEN • TOURNAMENT</div>
+                <h2>{event.name}</h2>
+                <div className="tournament-controls-round">
+                  <span>ROUND {event.current_round} / {event.max_rounds}</span>
+                  <span className={`tournament-controls-status ${event.status}`}>{event.status === 'paused' ? 'Paused' : event.status === 'finished' ? 'Finished' : 'Live'}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="tournament-controls-close"
+                onClick={() => setShowTournamentControls(false)}
+                aria-label="Close tournament controls"
+              >
+                ✕
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                {event.format === '1v1v1-single-elimination' ? 'ROUNDS:' : 'ROUNDS:'}
-              </span>
-              {event.format === '1v1v1-single-elimination' ? (
-                <span style={{ fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>
-                  {event.max_rounds} Rounds
-                </span>
-              ) : (
-                <input
-                  type="number"
-                  min={event.current_round}
-                  value={event.max_rounds}
-                  onChange={(e) => updateMaxRounds(e.target.value)}
-                  disabled={isFinalized}
-                  style={{ ...miniInput, opacity: isFinalized ? 0.5 : 1, cursor: isFinalized ? 'not-allowed' : 'text' }}
-                />
-              )}
+
+            <div className="tournament-controls-panel-body">
+              <div className="tournament-controls-event-row">
+                <button className="rename-btn" onClick={renameEvent} style={{ ...utilBtn, padding: '8px 12px', fontSize: '0.85rem' }}>
+                  ✏️ Rename
+                </button>
+                <label className="tournament-controls-round-input">
+                  <span>Rounds</span>
+                  {event.format === '1v1v1-single-elimination' ? (
+                    <strong>{event.max_rounds}</strong>
+                  ) : (
+                    <input
+                      type="number"
+                      min={event.current_round}
+                      value={event.max_rounds}
+                      onChange={(e) => updateMaxRounds(e.target.value)}
+                      disabled={isFinalized}
+                      style={{ ...miniInput, opacity: isFinalized ? 0.5 : 1, cursor: isFinalized ? 'not-allowed' : 'text' }}
+                    />
+                  )}
+                </label>
+              </div>
+
+              <div className="tournament-controls-grid">
+                <button onClick={togglePause} disabled={isFinalized} style={{...secondaryBtn, opacity: isFinalized ? 0.5 : 1}}>{event.status === 'paused' ? '▶️ Resume' : '⏸ Pause'}</button>
+                <button onClick={refreshTournament} disabled={isRefreshing} style={{...secondaryBtn}}>{isRefreshing ? '↻ Refreshing…' : '↻ Refresh'}</button>
+                <button onClick={() => window.open(buildRefereeDashboardUrl(event.event_id), '_blank', 'noopener,noreferrer')} style={{...secondaryBtn}}>🎛 Referee Dashboard</button>
+                <button onClick={togglePublicLive} style={{...secondaryBtn}}>{event.public_enabled ? '🌐 Disable Public Live' : '🌐 Enable Public Live'}</button>
+                {event.public_enabled && <button onClick={copyPublicLiveLink} style={{...secondaryBtn}}>🔗 Copy Live Link</button>}
+                <button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button>
+                <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
+                <button onClick={onBack} style={utilBtn}>Main Menu</button>
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button onClick={togglePause} disabled={isFinalized} style={{...secondaryBtn, opacity: isFinalized ? 0.5 : 1}}>{event.status === 'paused' ? '▶️ Resume' : '⏸ Pause'}</button>
-            <button onClick={refreshTournament} disabled={isRefreshing} style={{...secondaryBtn}}>{isRefreshing ? '↻ Refreshing…' : '↻ Refresh'}</button>
-            <button onClick={() => window.open(buildRefereeDashboardUrl(event.event_id), '_blank', 'noopener,noreferrer')} style={{...secondaryBtn}}>🎛 Referee Dashboard</button>
-            <button onClick={togglePublicLive} style={{...secondaryBtn}}>{event.public_enabled ? '🌐 Disable Public Live' : '🌐 Enable Public Live'}</button>
-            {event.public_enabled && <button onClick={copyPublicLiveLink} style={{...secondaryBtn}}>🔗 Copy Live Link</button>}
-            <button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button>
-            <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
-            <button onClick={onBack} style={utilBtn}>Main Menu</button>
-            <button type="button" onClick={() => setShowTournamentControls(false)} style={{ ...utilBtn, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>✕ Hide Controls</button>
-          </div>
-        </div>
-      </div>
+
+            <div className="tournament-controls-panel-footer">
+              <button type="button" onClick={() => setShowTournamentControls(false)} className="tournament-controls-hide">✕ Close Controls</button>
+            </div>
+          </aside>
+        </>
       )}
 
       {(event.status === 'paused' || controlMessage) && (

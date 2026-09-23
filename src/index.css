@@ -149,3 +149,76 @@ button:focus-visible,input:focus-visible,select:focus-visible { outline:3px soli
 /* Legacy inline UI compatibility */
 [data-theme="light"] .modalOverlay,[data-theme="light"] .modalDialog { color-scheme:light; }
 @media (max-width:700px){.theme-toggle:not(.theme-toggle-compact){width:100%;}.public-live-content{padding-inline:14px}.public-live-header{padding-inline:14px}}
+
+
+/* Floating tournament controls: hidden by default, anchored to the current viewport when opened. */
+.tournament-controls-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 109;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(2, 6, 23, 0.48);
+  cursor: default;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.tournament-controls-panel {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 110;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.32);
+}
+.tournament-controls-panel-header {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.tournament-controls-panel-header h2 { margin: 3px 0 6px; color: var(--text-h); font-size: 1.15rem; }
+.tournament-controls-panel-kicker { font-size: .68rem; font-weight: 900; letter-spacing: .12em; color: var(--accent); }
+.tournament-controls-round { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: .75rem; font-weight: 700; }
+.tournament-controls-status { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); text-transform: capitalize; }
+.tournament-controls-status.paused { color: var(--warning); border-color: var(--warning); background: var(--warning-bg); }
+.tournament-controls-status.finished { color: var(--muted); }
+.tournament-controls-status.active { color: var(--success); border-color: var(--success); background: var(--success-bg); }
+.tournament-controls-close {
+  width: 40px; height: 40px; flex: 0 0 40px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2); color: var(--text-h);
+  cursor: pointer; font-weight: 900;
+}
+.tournament-controls-close:hover, .tournament-controls-hide:hover { background: var(--surface-3); border-color: var(--accent-border); }
+.tournament-controls-panel-body { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 16px 18px; }
+.tournament-controls-event-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.tournament-controls-round-input { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .8rem; font-weight: 800; }
+.tournament-controls-round-input strong { color: var(--text-h); }
+.tournament-controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tournament-controls-grid button { min-height: 52px; width: 100%; }
+.tournament-controls-panel-footer { flex: 0 0 auto; padding: 12px 18px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface-2); }
+.tournament-controls-hide { width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-h); cursor: pointer; font-weight: 800; }
+@media (max-width: 560px) {
+  .tournament-controls-panel { top: max(8px, env(safe-area-inset-top)); right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; width: auto; max-height: calc(100dvh - 16px); border-radius: 16px; }
+  .tournament-controls-panel-header { padding: 15px; }
+  .tournament-controls-panel-body { padding: 14px 15px; }
+  .tournament-controls-grid { grid-template-columns: 1fr; }
+  .tournament-controls-grid button { min-height: 48px; }
+}
