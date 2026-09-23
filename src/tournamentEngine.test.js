@@ -35,56 +35,12 @@ test('roster padding never creates more than two placeholders', () => {
   }
 });
 
-test('Round 1 Swiss pairings respect reshuffled roster order instead of alphabetical order', () => {
-  const alphabetical = generateSwissMatches(makePlayers(['A', 'B', 'C', 'D', 'E', 'F']), 1);
-  const reshuffled = generateSwissMatches(makePlayers(['A', 'D', 'B', 'E', 'C', 'F']), 1);
-  const groupNames = matches => matches.map(match => match.members.filter(member => !isImposter(member)).map(member => member.name).sort().join('|')).sort();
-  assert.notDeepEqual(groupNames(reshuffled.matches), groupNames(alphabetical.matches));
-  assert.deepEqual(reshuffled.matches[0].members.filter(member => !isImposter(member)).map(member => member.name), ['A', 'D', 'B']);
-  assert.deepEqual(reshuffled.matches[1].members.filter(member => !isImposter(member)).map(member => member.name), ['E', 'C', 'F']);
-});
-
 test('Swiss initial round distributes byes instead of putting all placeholders together', () => {
   const players = makePlayers(['A', 'B', 'C', 'D']);
   const { roster, matches } = generateSwissMatches(players, 1);
   assert.equal(roster.length, 6);
   assert.equal(matches.length, 2);
   assert.deepEqual(matches.map(match => match.members.filter(member => !isImposter(member)).length).sort(), [2, 2]);
-});
-
-
-test('round-to-round imposter slots are reused without creating duplicates', () => {
-  const players = createTournamentPlayers(['A', 'B', 'C', 'D', 'E']);
-  const first = generateSwissMatches(players, 1);
-  assert.equal(first.roster.filter(isImposter).length, 1);
-  assert.equal(new Set(first.roster.filter(isImposter).map(player => player.id)).size, 1);
-
-  const second = generateSwissMatches(first.roster, 2);
-  const secondImposters = second.roster.filter(isImposter);
-  assert.equal(secondImposters.length, 1);
-  assert.equal(secondImposters[0].id, first.roster.find(isImposter).id);
-  assert.equal(second.matches.every(match => match.members.length <= 3), true);
-});
-
-test('inactive players stay in the event roster but never consume imposter slots', () => {
-  const players = createTournamentPlayers(['A', 'B', 'C', 'D', 'E']);
-  players[4].status = 'withdrawn';
-  const generated = generateSwissMatches(players, 2);
-  assert.equal(generated.roster.some(player => player.id === players[4].id), true);
-  assert.equal(generated.roster.filter(isImposter).length, 2);
-  assert.equal(generated.matches.flat().some(match => match.members.some(member => member.id === players[4].id)), false);
-  assert.equal(generated.matches.every(match => match.members.length <= 3), true);
-});
-
-test('Swiss results record losses for players who do not win', () => {
-  const players = createTournamentPlayers(['A', 'B', 'C']);
-  const { matches } = generateSwissMatches(players, 1);
-  const completed = completeWithScores(matches, [[3, 1, 0]]);
-  const updated = recordSwissRoundResults(players, completed);
-  assert.equal(updated[0].wins, 1);
-  assert.equal(updated[0].losses, 0);
-  assert.equal(updated[1].losses, 1);
-  assert.equal(updated[2].losses, 1);
 });
 
 test('Swiss round results update score, wins and opponent IDs', () => {

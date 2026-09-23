@@ -5,7 +5,6 @@ import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults,
 import { buildScoreboardUrl } from '../refereeScoreboard.js';
 import { buildRefereeDashboardUrl } from '../refereeDashboard.js';
 import { buildPublicLiveUrl } from '../publicLiveUtils.js';
-import { shuffle } from '../tournamentUtils.js';
 import {
   activeLayout, stickyHeader, headerContent, headerTitle, utilBtn, roundScrollArea, currentRound, completedRound, roundHeader, roundBadge, statusTag, matchGrid, matchCard, matchLabel, matchRow, roundActionBtn, stickyButtonContainer, standingContainer, standingsTable, th, thLeft, thCenter, tr, tdRank, tdName, tdCenter, tdBH, pName, sectionTitle, miniInput, secondaryBtn, modalOverlay, modalDialog, modalHeader, modalCloseBtn, modalActions, modalActionBtn, textArea, playBtn, editBtn, scoreDisplay, matchLinkRow, matchLinkBtn, primaryBtn, tableWrapper
 } from '../styles/appStyles.js';
@@ -18,6 +17,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
   const [editPlayerNames, setEditPlayerNames] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [controlMessage, setControlMessage] = useState('');
+  const [showTournamentControls, setShowTournamentControls] = useState(false);
   useEffect(() => {
     if (currentRoundRef.current) {
       currentRoundRef.current.scrollIntoView({ 
@@ -58,7 +58,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
   };
 
   const togglePublicLive = async () => {
-    const next = !event.public_enabled;
+    const next = !Boolean(event.public_enabled);
     const confirmed = window.confirm(next ? 'Enable the public live page? Anyone with the link will be able to view tournament standings and match progress.' : 'Disable the public live page? Existing shared links will stop working.');
     if (!confirmed) return;
     try {
@@ -89,12 +89,6 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
     } catch (error) {
       alert(`Unable to change tournament status: ${error?.message || 'Unknown error'}`);
     }
-  };
-
-  const reshufflePlayerNames = () => {
-    const names = editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean);
-    if (names.length < 2) return;
-    setEditPlayerNames(shuffle(names).join('\n'));
   };
 
   const handleUpdatePlayers = async () => {
@@ -145,12 +139,12 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
 
     if (!window.confirm('Matches have not started yet. Updating the roster will regenerate Round 1 and reset tournament progress. Continue?')) return;
 
-    // Before Round 1 starts there is no match history to preserve. Recreate the
-    // real-player roster in the exact order shown in the editor. This is important
-    // for the Reshuffle Name List feature: keeping the old player IDs here can leave
-    // the pairing engine with the same seed identities, making the reshuffle appear
-    // not to affect the generated matchups.
-    const updatedRealPlayers = createTournamentPlayers(newPlayerNames);
+    const updatedRealPlayers = createTournamentPlayers(newPlayerNames).map((newPlayer, index) => {
+      const oldPlayer = realPlayers[index];
+      return oldPlayer
+        ? { ...oldPlayer, name: newPlayer.name, score: 0, wins: 0, opponents: [], byeCount: 0, eliminated: false, isImposter: false }
+        : newPlayer;
+    });
 
     const initial = event.format === ELIMINATION_FORMAT
       ? generateEliminationMatches(updatedRealPlayers, 1)
@@ -352,6 +346,18 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
 
   return (
     <div style={activeLayout}>
+      {!showTournamentControls && (
+        <button
+          type="button"
+          onClick={() => setShowTournamentControls(true)}
+          style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', right: '12px', zIndex: 110, background: 'var(--surface)', color: 'var(--text-h)', border: '1px solid var(--border)', borderRadius: '10px', padding: '9px 12px', fontWeight: 800, cursor: 'pointer', boxShadow: 'var(--shadow-soft)' }}
+          aria-label="Show tournament controls"
+        >
+          ☰ Controls
+        </button>
+      )}
+
+      {showTournamentControls && (
       <div style={stickyHeader}>
         <div style={headerContent}>
           <div>
@@ -390,12 +396,14 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
             <button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button>
             <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
             <button onClick={onBack} style={utilBtn}>Main Menu</button>
+            <button type="button" onClick={() => setShowTournamentControls(false)} style={{ ...utilBtn, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>✕ Hide Controls</button>
           </div>
         </div>
       </div>
+      )}
 
       {(event.status === 'paused' || controlMessage) && (
-        <div style={{ position: 'sticky', top: '60px', zIndex: 90, maxWidth: '1000px', margin: '0 auto', padding: '8px 15px', background: event.status === 'paused' ? '#78350f' : '#1e293b', border: '1px solid #475569', borderRadius: '0 0 10px 10px', color: '#f8fafc', fontSize: '0.8rem', textAlign: 'center' }}>
+        <div style={{ position: 'relative', zIndex: 90, maxWidth: '1000px', margin: '0 auto', padding: '8px 15px', background: event.status === 'paused' ? '#78350f' : '#1e293b', border: '1px solid #475569', borderRadius: '0 0 10px 10px', color: '#f8fafc', fontSize: '0.8rem', textAlign: 'center' }}>
           {event.status === 'paused' ? '⏸ Tournament paused — existing results are preserved.' : controlMessage}
         </div>
       )}
@@ -455,10 +463,31 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                     {isTie && <div style={{ color: '#fbbf24', fontSize: '0.75rem', fontWeight: 700, marginTop: '8px' }}>⚠️ TIE — select a clear winner before advancing.</div>}
                     {isTie && !isFinalized && <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>{m.members.filter(member => winnerIds.includes(member.id)).map(member => <button key={member.id} onClick={() => resolveEliminationTie(rIdx, mIdx, member.id)} style={{ ...playBtn, background: '#b45309' }}>🏆 {member.name}</button>)}</div>}
                     {!isCompleted && !isFinalized && event.status !== 'paused' && (
-                      <button 
+                      <button
                         onClick={async () => {
-                          if (m.status === 'completed' || event.status === 'finished') return;
+                          if (event.status === 'finished') return;
                           try {
+                            if (m.status === 'completed') {
+                              const currentRoundIndex = Math.max(0, Number(event.current_round || 1) - 1);
+                              if (rIdx !== currentRoundIndex) {
+                                alert('Only matches from the current round can be edited.');
+                                return;
+                              }
+                              setRefereeData({
+                                roundIdx: rIdx,
+                                matchIdx: mIdx,
+                                matchId: m.id,
+                                revision: event.revision,
+                                status: m.status,
+                                members: m.members,
+                                eventName: event.name,
+                                roundNumber: rIdx + 1,
+                                stadiumNumber: mIdx + 1,
+                              });
+                              setView('SCOREBOARD');
+                              return;
+                            }
+
                             const updatedEvent = await startMatch(event, rIdx, mIdx);
                             const updatedMatch = updatedEvent.matches?.[rIdx]?.[mIdx];
                             if (!updatedMatch) throw new Error('The selected match is no longer available.');
@@ -467,7 +496,11 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                               matchIdx: mIdx,
                               matchId: updatedMatch.id,
                               revision: updatedEvent.revision,
+                              status: updatedMatch.status,
                               members: updatedMatch.members,
+                              eventName: event.name,
+                              roundNumber: rIdx + 1,
+                              stadiumNumber: mIdx + 1,
                             });
                             setView('SCOREBOARD');
                           } catch (error) {
@@ -534,7 +567,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                 <tr>
                   <th style={th}>Rank</th>
                   <th style={thLeft}>Player</th>
-                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>Points</th>}
+                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>Score</th>}
                   <th style={thCenter}>{event.format === '1v1v1-single-elimination' ? 'Wins' : 'Wins'}</th>
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>TB</th>}
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>BH</th>}
@@ -646,28 +679,13 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                 </div>
               ) : (
                 // Show textarea when matches haven't started
-                <>
-                  <textarea
-                    placeholder="Player 1\nPlayer 2\n..."
-                    value={editPlayerNames}
-                    onChange={(e) => setEditPlayerNames(e.target.value)}
-                    rows={10}
-                    style={textArea}
-                  />
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={reshufflePlayerNames}
-                    disabled={editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean).length < 2}
-                    style={{ ...secondaryBtn, opacity: editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean).length < 2 ? 0.5 : 1 }}
-                  >
-                    🔀 Reshuffle Name List
-                  </button>
-                  <span style={{ alignSelf: 'center', color: '#94a3b8', fontSize: '0.75rem' }}>
-                    Randomizes the order only. Click Update Players to apply it.
-                  </span>
-                  </div>
-                </>
+                <textarea
+                  placeholder="Player 1&#10;Player 2&#10;..."
+                  value={editPlayerNames}
+                  onChange={(e) => setEditPlayerNames(e.target.value)}
+                  rows={10}
+                  style={textArea}
+                />
               )}
             </div>
 

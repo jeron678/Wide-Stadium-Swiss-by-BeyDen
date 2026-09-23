@@ -17,14 +17,9 @@ export const isPlayerActive = player => !isImposter(player) && (player?.status |
 
 export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => ({
   ...normalisePlayer(player, fallbackPrefix),
-  // seedOrder is the roster order used as the final pairing tie-breaker.
-  // It is deliberately separate from player name so the pairing engine does
-  // not silently turn a shuffled name list back into alphabetical order.
-  seedOrder: Number.isFinite(Number(player?.seedOrder)) ? Number(player.seedOrder) : Number.MAX_SAFE_INTEGER,
   isImposter: Boolean(player?.isImposter),
   status: player?.status || PLAYER_STATUS.ACTIVE,
   byeCount: Number.isFinite(Number(player?.byeCount)) ? Number(player.byeCount) : 0,
-  losses: Number.isFinite(Number(player?.losses)) ? Number(player.losses) : 0,
   opponents: Array.isArray(player?.opponents) ? [...new Set(player.opponents.filter(Boolean))] : [],
   winsAgainst: Array.isArray(player?.winsAgainst) ? [...new Set(player.winsAgainst.filter(Boolean))] : [],
   eliminated: Boolean(player?.eliminated),
@@ -33,13 +28,11 @@ export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => 
 export const createTournamentPlayers = names => names
   .map(name => String(name || '').trim())
   .filter(Boolean)
-  .map((name, index) => normaliseTournamentPlayer({
+  .map(name => normaliseTournamentPlayer({
     id: createId('player'),
     name,
-    seedOrder: index,
     score: 0,
     wins: 0,
-    losses: 0,
     opponents: [],
     winsAgainst: [],
     byeCount: 0,
@@ -52,9 +45,7 @@ export const createImposter = index => normaliseTournamentPlayer({
   name: `Imposter ${index}`,
   score: 0,
   wins: 0,
-  losses: 0,
   opponents: [],
-  winsAgainst: [],
   byeCount: 0,
   eliminated: false,
   isImposter: true,
@@ -62,35 +53,16 @@ export const createImposter = index => normaliseTournamentPlayer({
 
 export const getRealPlayers = players => players.filter(player => isPlayerActive(player) && !player?.eliminated);
 
-/**
- * Keep the event roster stable while ensuring that only the exact number of
- * physical substitute slots required for the current active-player count exist.
- *
- * Imposters are deliberately recreated only when a slot did not already exist.
- * Existing Imposter 1/2 records keep their IDs, which prevents duplicate
- * placeholder records from accumulating between rounds.
- */
 export const padRosterForTripleMatches = players => {
-  const normalised = players.map(player => normaliseTournamentPlayer(player));
-  const realPlayers = normalised.filter(player => !isImposter(player));
-  const existingImposters = normalised
-    .filter(isImposter)
-    .sort((a, b) => {
-      const ai = Number(String(a.name || '').match(/(\\d+)$/)?.[1] || 99);
-      const bi = Number(String(b.name || '').match(/(\\d+)$/)?.[1] || 99);
-      return ai - bi;
-    });
+  const result = players.map(player => normaliseTournamentPlayer(player));
+  const realCount = result.filter(player => !isImposter(player)).length;
+  const targetCount = Math.ceil(realCount / 3) * 3;
+  const missing = targetCount - realCount;
 
-  const activeRealCount = getRealPlayers(realPlayers).length;
-  const requiredImposterCount = activeRealCount % 3 === 0 ? 0 : 3 - (activeRealCount % 3);
-  const imposters = [];
-
-  for (let index = 0; index < requiredImposterCount; index += 1) {
-    const existing = existingImposters[index];
-    imposters.push(existing ? { ...existing, name: `Imposter ${index + 1}`, isImposter: true } : createImposter(index + 1));
+  for (let i = 1; i <= missing; i += 1) {
+    result.push(createImposter(i));
   }
-
-  return [...realPlayers, ...imposters];
+  return result;
 };
 
 export const buildMatch = (members, roundNumber, matchIndex) => ({
@@ -148,25 +120,10 @@ const pairCost = (a, b, allPlayers) => {
 };
 
 const compareSeedOrder = (a, b, allPlayers) => {
-  // Pairing priority is still based on tournament standing. However, when
-  // players are otherwise equal, preserve the explicit roster/seed order
-  // instead of falling back to name alphabetical order. This is what makes
-  // Edit Players -> Reshuffle Name List actually affect Round 1 pairings.
-  const scoreDiff = toScore(b.score) - toScore(a.score);
-  if (scoreDiff !== 0) return scoreDiff;
-
-  const winsDiff = toScore(b.wins) - toScore(a.wins);
-  if (winsDiff !== 0) return winsDiff;
-
-  const buchholzDiff = calculateBuchholz(b, allPlayers) - calculateBuchholz(a, allPlayers);
-  if (buchholzDiff !== 0) return buchholzDiff;
-
+  const base = compareSwissPlayers(a, b, allPlayers);
+  if (base !== 0) return base;
   const byeDiff = toScore(a.byeCount) - toScore(b.byeCount);
   if (byeDiff !== 0) return byeDiff;
-
-  const seedDiff = toScore(a.seedOrder) - toScore(b.seedOrder);
-  if (seedDiff !== 0) return seedDiff;
-
   return String(a.id).localeCompare(String(b.id));
 };
 
@@ -283,11 +240,7 @@ export const recordSwissRoundResults = (players, matches) => {
       const isBye = realMembers.length < 3;
       player.score = toScore(player.score) + (isBye && realMembers.length === 1 ? 0 : toScore(member.currentRoundScore));
       const wonThisMatch = realMembers.length === 1 || winners.some(winner => winner.id === member.id);
-      if (wonThisMatch) {
-        player.wins = toScore(player.wins) + 1;
-      } else {
-        player.losses = toScore(player.losses) + 1;
-      }
+      if (wonThisMatch) player.wins = toScore(player.wins) + 1;
       const opponents = realMembers.filter(opponent => opponent.id !== member.id).map(opponent => opponent.id);
       player.opponents = [...new Set([...(player.opponents || []), ...opponents])];
       if (wonThisMatch && realMembers.length > 1) {
@@ -378,7 +331,7 @@ export const getStandings = (players, format = SWISS_FORMAT) => {
 
 export const migrateLegacyTournament = event => {
   if (!event) return event;
-  const players = (event.players || []).map((player, index) => normaliseTournamentPlayer({ ...player, seedOrder: Number.isFinite(Number(player?.seedOrder)) ? Number(player.seedOrder) : index }, `player-${index + 1}`));
+  const players = (event.players || []).map((player, index) => normaliseTournamentPlayer(player, `player-${index + 1}`));
   const idByName = new Map(players.filter(player => player.name).map(player => [player.name, player.id]));
 
   const migratedPlayers = players.map(player => ({
