@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calculateBuchholz,
-  calculateTB,
   compareSwissPlayers,
   getRoundStatus,
   validateCompletedRound,
@@ -27,37 +26,14 @@ test('legacy opponent names remain readable', () => {
   assert.equal(calculateBuchholz(players[0], players), 4);
 });
 
-test('Swiss ranking uses wins, then TB, then points, then Buchholz', () => {
+test('Swiss ranking uses score, then wins, then Buchholz', () => {
   const players = [
-    { id: 'a', name: 'Alice', score: 12, wins: 2, winsAgainst: ['b'], opponents: ['b'] },
-    { id: 'b', name: 'Bob', score: 20, wins: 2, winsAgainst: [], opponents: ['a'] },
-    { id: 'c', name: 'Chris', score: 30, wins: 1, winsAgainst: [], opponents: [] },
+    { id: 'a', name: 'Alice', score: 6, wins: 1, opponents: ['c'] },
+    { id: 'b', name: 'Bob', score: 6, wins: 1, opponents: ['c'] },
+    { id: 'c', name: 'Chris', score: 8, wins: 2, opponents: [] },
   ];
   const sorted = [...players].sort((a, b) => compareSwissPlayers(a, b, players));
-  assert.deepEqual(sorted.map(player => player.id), ['a', 'b', 'c']);
-});
-
-test('Swiss ranking uses points only after wins and TB are tied', () => {
-  const players = [
-    { id: 'a', name: 'Alice', score: 12, wins: 2, winsAgainst: [], opponents: [] },
-    { id: 'b', name: 'Bob', score: 10, wins: 2, winsAgainst: [], opponents: [] },
-  ];
-  const sorted = [...players].sort((a, b) => compareSwissPlayers(a, b, players));
-  assert.deepEqual(sorted.map(player => player.id), ['a', 'b']);
-});
-
-
-test('TB gives +1 when a player previously beat an opponent on the same win total', () => {
-  const players = [
-    { id: 'a', name: 'Alice', score: 10, wins: 2, winsAgainst: ['b'], opponents: ['b'] },
-    { id: 'b', name: 'Bob', score: 10, wins: 2, winsAgainst: [], opponents: ['a'] },
-    { id: 'c', name: 'Chris', score: 10, wins: 2, winsAgainst: [], opponents: [] },
-  ];
-  assert.equal(calculateTB(players[0], players), 1);
-  assert.equal(calculateTB(players[1], players), 0);
-  assert.equal(calculateTB(players[2], players), 0);
-  const sorted = [...players].sort((a, b) => compareSwissPlayers(a, b, players));
-  assert.equal(sorted[0].id, 'a');
+  assert.deepEqual(sorted.map(player => player.id), ['c', 'a', 'b']);
 });
 
 test('round validation blocks incomplete rounds', () => {

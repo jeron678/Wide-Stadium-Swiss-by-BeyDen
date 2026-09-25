@@ -9,8 +9,7 @@ export default defineConfig({
       input: {
         main: resolve(process.cwd(), 'index.html'),
         scoreboard: resolve(process.cwd(), 'scoreboard.html'),
-        referee: resolve(process.cwd(), 'referee.html'),
-        live: resolve(process.cwd(), 'live.html')
+        referee: resolve(process.cwd(), 'referee.html')
       }
     }
   }

@@ -35,6 +35,33 @@ test('roster padding never creates more than two placeholders', () => {
   }
 });
 
+
+test('Round 1 Swiss matchups follow explicit seed order, not alphabetical order', () => {
+  const players = createTournamentPlayers(['Zed', 'Aaron', 'Mike', 'Bella', 'Chris', 'Daniel']);
+  const { matches } = generateSwissMatches(players, 1);
+  const groups = matches.map(match => match.members.filter(member => !isImposter(member)).map(member => member.name));
+  assert.deepEqual(groups, [
+    ['Zed', 'Aaron', 'Mike'],
+    ['Bella', 'Chris', 'Daniel'],
+  ]);
+});
+
+test('Reshuffled roster order becomes the new Round 1 seed order', () => {
+  const players = createTournamentPlayers(['Zed', 'Aaron', 'Mike', 'Bella', 'Chris', 'Daniel']);
+  const reshuffled = ['Chris', 'Zed', 'Daniel', 'Aaron', 'Bella', 'Mike'];
+  const reordered = reshuffled.map((name, index) => ({
+    ...players.find(player => player.name === name),
+    name,
+    seedOrder: index,
+  }));
+  const { matches } = generateSwissMatches(reordered, 1);
+  const groups = matches.map(match => match.members.filter(member => !isImposter(member)).map(member => member.name));
+  assert.deepEqual(groups, [
+    ['Chris', 'Zed', 'Daniel'],
+    ['Aaron', 'Bella', 'Mike'],
+  ]);
+});
+
 test('Swiss initial round distributes byes instead of putting all placeholders together', () => {
   const players = makePlayers(['A', 'B', 'C', 'D']);
   const { roster, matches } = generateSwissMatches(players, 1);

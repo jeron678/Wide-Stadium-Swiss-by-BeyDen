@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test src/tournamentUtils.test.js src/tournamentEngine.test.js src/eventService.test.js src/refereeScoreboard.test.js src/architecture.test.js src/refereeDashboard.test.js src/eventBackup.test.js src/authService.test.js src/eventAccessService.test.js src/eventAuditService.test.js src/authRedirectUtils.test.js src/publicAccessUtils.test.js src/publicLiveUtils.test.js src/publicStatsUtils.test.js"
+    "test": "node --test src/tournamentUtils.test.js src/tournamentEngine.test.js src/eventService.test.js src/refereeScoreboard.test.js src/architecture.test.js src/refereeDashboard.test.js src/eventBackup.test.js src/authService.test.js src/eventAccessService.test.js src/eventAuditService.test.js src/authRedirectUtils.test.js src/publicAccessUtils.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1",

@@ -12,30 +12,24 @@ export const ELIMINATION_FORMAT = '1v1v1-single-elimination';
 const toScore = value => (Number.isFinite(Number(value)) ? Number(value) : 0);
 
 export const isImposter = player => Boolean(player?.isImposter);
-export const PLAYER_STATUS = { ACTIVE: 'active', WITHDRAWN: 'withdrawn', NO_SHOW: 'no-show', DISQUALIFIED: 'disqualified' };
-export const isPlayerActive = player => !isImposter(player) && (player?.status || PLAYER_STATUS.ACTIVE) === PLAYER_STATUS.ACTIVE;
 
 export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => ({
   ...normalisePlayer(player, fallbackPrefix),
   isImposter: Boolean(player?.isImposter),
-  status: player?.status || PLAYER_STATUS.ACTIVE,
   byeCount: Number.isFinite(Number(player?.byeCount)) ? Number(player.byeCount) : 0,
   opponents: Array.isArray(player?.opponents) ? [...new Set(player.opponents.filter(Boolean))] : [],
-  winsAgainst: Array.isArray(player?.winsAgainst) ? [...new Set(player.winsAgainst.filter(Boolean))] : [],
   eliminated: Boolean(player?.eliminated),
 });
 
 export const createTournamentPlayers = names => names
   .map(name => String(name || '').trim())
   .filter(Boolean)
-  .map((name, index) => normaliseTournamentPlayer({
+  .map(name => normaliseTournamentPlayer({
     id: createId('player'),
     name,
-    seedOrder: index,
     score: 0,
     wins: 0,
     opponents: [],
-    winsAgainst: [],
     byeCount: 0,
     eliminated: false,
     isImposter: false,
@@ -52,7 +46,7 @@ export const createImposter = index => normaliseTournamentPlayer({
   isImposter: true,
 });
 
-export const getRealPlayers = players => players.filter(player => isPlayerActive(player) && !player?.eliminated);
+export const getRealPlayers = players => players.filter(player => !isImposter(player) && !player?.eliminated);
 
 export const padRosterForTripleMatches = players => {
   const result = players.map(player => normaliseTournamentPlayer(player));
@@ -125,9 +119,6 @@ const compareSeedOrder = (a, b, allPlayers) => {
   if (base !== 0) return base;
   const byeDiff = toScore(a.byeCount) - toScore(b.byeCount);
   if (byeDiff !== 0) return byeDiff;
-  const aSeed = Number.isFinite(Number(a?.seedOrder)) ? Number(a.seedOrder) : Number.POSITIVE_INFINITY;
-  const bSeed = Number.isFinite(Number(b?.seedOrder)) ? Number(b.seedOrder) : Number.POSITIVE_INFINITY;
-  if (aSeed !== bSeed) return aSeed - bSeed;
   return String(a.id).localeCompare(String(b.id));
 };
 
@@ -171,30 +162,11 @@ const buildGroupsGreedy = (players, sizes, allPlayers) => {
   return remaining.length === 0 ? groups : null;
 };
 
-export const generateSwissGroups = (players, allPlayers = players, options = {}) => {
+export const generateSwissGroups = (players, allPlayers = players) => {
   const realPlayers = getRealPlayers(players);
   if (realPlayers.length <= 0) return [];
 
   const sizes = groupShape(realPlayers.length);
-
-  // Round 1 has no tournament history or standings to optimise. Use the
-  // explicit seed order exactly as entered/reshuffled instead of introducing
-  // random ordering. This makes the Edit Players reshuffle deterministic.
-  if (options.seedOnly) {
-    const ordered = [...realPlayers].sort((a, b) => {
-      const aSeed = Number.isFinite(Number(a?.seedOrder)) ? Number(a.seedOrder) : Number.POSITIVE_INFINITY;
-      const bSeed = Number.isFinite(Number(b?.seedOrder)) ? Number(b.seedOrder) : Number.POSITIVE_INFINITY;
-      if (aSeed !== bSeed) return aSeed - bSeed;
-      return String(a.id || '').localeCompare(String(b.id || ''));
-    });
-    const groups = [];
-    let cursor = 0;
-    sizes.forEach(size => {
-      groups.push(ordered.slice(cursor, cursor + size));
-      cursor += size;
-    });
-    return groups;
-  }
   let bestGroups = null;
   let bestCost = Number.POSITIVE_INFINITY;
 
@@ -239,7 +211,7 @@ const assignImposters = (groups, players) => {
 
 export const generateSwissMatches = (players, roundNumber = 1) => {
   const roster = padRosterForTripleMatches(players);
-  const groups = generateSwissGroups(roster, roster, { seedOnly: Number(roundNumber) === 1 });
+  const groups = generateSwissGroups(roster, roster);
   const groupedWithImposters = assignImposters(groups, roster);
   const matches = groupedWithImposters.map((group, index) => buildMatch(group, roundNumber, index));
 
@@ -262,14 +234,11 @@ export const recordSwissRoundResults = (players, matches) => {
       const player = updatedPlayers[playerIndex];
       const isBye = realMembers.length < 3;
       player.score = toScore(player.score) + (isBye && realMembers.length === 1 ? 0 : toScore(member.currentRoundScore));
-      const wonThisMatch = realMembers.length === 1 || winners.some(winner => winner.id === member.id);
-      if (wonThisMatch) player.wins = toScore(player.wins) + 1;
+      if (realMembers.length === 1 || winners.some(winner => winner.id === member.id)) {
+        player.wins = toScore(player.wins) + 1;
+      }
       const opponents = realMembers.filter(opponent => opponent.id !== member.id).map(opponent => opponent.id);
       player.opponents = [...new Set([...(player.opponents || []), ...opponents])];
-      if (wonThisMatch && realMembers.length > 1) {
-        const defeated = realMembers.filter(opponent => opponent.id !== member.id && toScore(opponent.currentRoundScore) < toScore(member.currentRoundScore)).map(opponent => opponent.id);
-        player.winsAgainst = [...new Set([...(player.winsAgainst || []), ...defeated])];
-      }
       if (isBye) player.byeCount = toScore(player.byeCount) + 1;
     });
   });
@@ -321,9 +290,9 @@ export const applyEliminationRound = (players, matches) => {
 };
 
 export const generateEliminationMatches = (players, roundNumber = 1) => {
-  const active = players.filter(player => isPlayerActive(player) && !player.eliminated);
+  const active = players.filter(player => !player.eliminated && !isImposter(player));
   const roster = padRosterForTripleMatches(active);
-  const groups = generateSwissGroups(roster, roster, { seedOnly: Number(roundNumber) === 1 });
+  const groups = generateSwissGroups(roster, roster);
   const groupsWithImposters = assignImposters(groups, roster);
   return {
     roster,
@@ -333,11 +302,8 @@ export const generateEliminationMatches = (players, roundNumber = 1) => {
 
 export const getStandings = (players, format = SWISS_FORMAT) => {
   const visiblePlayers = players.filter(player => !isImposter(player));
-  const statusRank = player => (player?.status || PLAYER_STATUS.ACTIVE) === PLAYER_STATUS.ACTIVE ? 0 : 1;
   if (format === ELIMINATION_FORMAT) {
     return [...visiblePlayers].sort((a, b) => {
-      const statusDiff = statusRank(a) - statusRank(b);
-      if (statusDiff !== 0) return statusDiff;
       const eliminatedDiff = Number(Boolean(a.eliminated)) - Number(Boolean(b.eliminated));
       if (eliminatedDiff !== 0) return eliminatedDiff;
       const winsDiff = toScore(b.wins) - toScore(a.wins);
@@ -345,11 +311,7 @@ export const getStandings = (players, format = SWISS_FORMAT) => {
       return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' });
     });
   }
-  return [...visiblePlayers].sort((a, b) => {
-    const statusDiff = statusRank(a) - statusRank(b);
-    if (statusDiff !== 0) return statusDiff;
-    return compareSwissPlayers(a, b, visiblePlayers);
-  });
+  return [...visiblePlayers].sort((a, b) => compareSwissPlayers(a, b, visiblePlayers));
 };
 
 export const migrateLegacyTournament = event => {
@@ -376,19 +338,5 @@ export const migrateLegacyTournament = event => {
     winnerIds: Array.isArray(match.winnerIds) ? match.winnerIds : [],
   })));
 
-  const winsAgainstById = new Map(migratedPlayers.map(player => [player.id, new Set(player.winsAgainst || [])]));
-  matches.flat().forEach(match => {
-    if (match?.status !== 'completed') return;
-    const realMembers = (match.members || []).filter(member => !isImposter(member));
-    if (realMembers.length < 2) return;
-    const highest = Math.max(...realMembers.map(member => toScore(member.currentRoundScore)));
-    const winners = realMembers.filter(member => toScore(member.currentRoundScore) === highest && highest > 0);
-    winners.forEach(winner => {
-      realMembers.filter(opponent => opponent.id !== winner.id && toScore(opponent.currentRoundScore) < toScore(winner.currentRoundScore)).forEach(opponent => {
-        if (winsAgainstById.has(winner.id)) winsAgainstById.get(winner.id).add(opponent.id);
-      });
-    });
-  });
-  const playersWithTB = migratedPlayers.map(player => ({ ...player, winsAgainst: [...(winsAgainstById.get(player.id) || new Set())] }));
-  return { ...event, players: playersWithTB, matches };
+  return { ...event, players: migratedPlayers, matches };
 };

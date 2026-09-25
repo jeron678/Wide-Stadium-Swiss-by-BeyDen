@@ -9,7 +9,6 @@ export function CreateEventView({ setView, loadEvent }) {
   const [pastedNames, setPastedNames] = useState('');
   const [rounds, setRounds] = useState(3);
   const [format, setFormat] = useState(SWISS_FORMAT);
-  const [publicEnabled, setPublicEnabled] = useState(true);
 
   const handleCreate = async () => {
     const names = pastedNames.split('\n').map(n => n.trim()).filter(Boolean);
@@ -39,7 +38,6 @@ export function CreateEventView({ setView, loadEvent }) {
         max_rounds: maxRounds,
         status: 'active',
         format,
-        public_enabled: publicEnabled,
       });
       if (created) loadEvent(created);
     } catch (error) {
@@ -61,13 +59,6 @@ export function CreateEventView({ setView, loadEvent }) {
           <option value={SWISS_FORMAT}>1v1v1 Swiss</option>
           <option value={ELIMINATION_FORMAT}>1v1v1 Knockout</option>
         </select>
-      </div>
-      <div style={formGroup}>
-        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-          <input type="checkbox" checked={publicEnabled} onChange={e => setPublicEnabled(e.target.checked)} />
-          Enable public live tournament page
-        </label>
-        <div style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Anyone with the live link can view standings and match progress. No login is required.</div>
       </div>
       {format === SWISS_FORMAT && (
         <div style={formGroup}>

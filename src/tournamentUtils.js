@@ -64,7 +64,13 @@ export const compareSwissPlayers = (a, b, allPlayers) => {
   const buchholzDiff = calculateBuchholz(b, allPlayers) - calculateBuchholz(a, allPlayers);
   if (buchholzDiff !== 0) return buchholzDiff;
 
-  return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+  // When all official Swiss criteria are tied, preserve the tournament's
+  // explicit seed order instead of falling back to alphabetical names.
+  const aSeed = Number.isFinite(Number(a?.seedOrder)) ? Number(a.seedOrder) : Number.POSITIVE_INFINITY;
+  const bSeed = Number.isFinite(Number(b?.seedOrder)) ? Number(b.seedOrder) : Number.POSITIVE_INFINITY;
+  if (aSeed !== bSeed) return aSeed - bSeed;
+
+  return String(a.id || '').localeCompare(String(b.id || ''));
 };
 
 export const compareEliminationPlayers = (a, b) => {

@@ -105,7 +105,7 @@ export default function RefereeDashboardApp({ authSession }) {
           const scoreboardUrl = buildScoreboardUrl(event.event_id, match.id);
           return (
             <article className="ref-match-card" key={match.id || `${match.roundIdx}-${match.matchIdx}`}>
-              <div className="ref-match-top"><span>R{match.roundNumber} · MATCH {match.stadiumNumber}</span><span className={statusClass(status)}>{status}</span></div>
+              <div className="ref-match-top"><span>R{match.roundNumber} · STADIUM {match.stadiumNumber}</span><span className={statusClass(status)}>{status}</span></div>
               <h2>{match.members.map(member => member?.name || 'Imposter').join(' vs ')}</h2>
               <p className="ref-score-text">{getMatchScoreText(match) || 'Waiting for players'}</p>
               <div className="ref-card-actions">

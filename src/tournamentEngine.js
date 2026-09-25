@@ -28,9 +28,10 @@ export const normaliseTournamentPlayer = (player, fallbackPrefix = 'player') => 
 export const createTournamentPlayers = names => names
   .map(name => String(name || '').trim())
   .filter(Boolean)
-  .map(name => normaliseTournamentPlayer({
+  .map((name, index) => normaliseTournamentPlayer({
     id: createId('player'),
     name,
+    seedOrder: index,
     score: 0,
     wins: 0,
     opponents: [],
@@ -124,6 +125,9 @@ const compareSeedOrder = (a, b, allPlayers) => {
   if (base !== 0) return base;
   const byeDiff = toScore(a.byeCount) - toScore(b.byeCount);
   if (byeDiff !== 0) return byeDiff;
+  const aSeed = Number.isFinite(Number(a?.seedOrder)) ? Number(a.seedOrder) : Number.POSITIVE_INFINITY;
+  const bSeed = Number.isFinite(Number(b?.seedOrder)) ? Number(b.seedOrder) : Number.POSITIVE_INFINITY;
+  if (aSeed !== bSeed) return aSeed - bSeed;
   return String(a.id).localeCompare(String(b.id));
 };
 
@@ -167,11 +171,30 @@ const buildGroupsGreedy = (players, sizes, allPlayers) => {
   return remaining.length === 0 ? groups : null;
 };
 
-export const generateSwissGroups = (players, allPlayers = players) => {
+export const generateSwissGroups = (players, allPlayers = players, options = {}) => {
   const realPlayers = getRealPlayers(players);
   if (realPlayers.length <= 0) return [];
 
   const sizes = groupShape(realPlayers.length);
+
+  // Round 1 has no tournament history or standings to optimise. Use the
+  // explicit seed order exactly as entered/reshuffled instead of introducing
+  // random ordering. This makes the Edit Players reshuffle deterministic.
+  if (options.seedOnly) {
+    const ordered = [...realPlayers].sort((a, b) => {
+      const aSeed = Number.isFinite(Number(a?.seedOrder)) ? Number(a.seedOrder) : Number.POSITIVE_INFINITY;
+      const bSeed = Number.isFinite(Number(b?.seedOrder)) ? Number(b.seedOrder) : Number.POSITIVE_INFINITY;
+      if (aSeed !== bSeed) return aSeed - bSeed;
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+    const groups = [];
+    let cursor = 0;
+    sizes.forEach(size => {
+      groups.push(ordered.slice(cursor, cursor + size));
+      cursor += size;
+    });
+    return groups;
+  }
   let bestGroups = null;
   let bestCost = Number.POSITIVE_INFINITY;
 
@@ -216,7 +239,7 @@ const assignImposters = (groups, players) => {
 
 export const generateSwissMatches = (players, roundNumber = 1) => {
   const roster = padRosterForTripleMatches(players);
-  const groups = generateSwissGroups(roster, roster);
+  const groups = generateSwissGroups(roster, roster, { seedOnly: Number(roundNumber) === 1 });
   const groupedWithImposters = assignImposters(groups, roster);
   const matches = groupedWithImposters.map((group, index) => buildMatch(group, roundNumber, index));
 
@@ -300,7 +323,7 @@ export const applyEliminationRound = (players, matches) => {
 export const generateEliminationMatches = (players, roundNumber = 1) => {
   const active = players.filter(player => isPlayerActive(player) && !player.eliminated);
   const roster = padRosterForTripleMatches(active);
-  const groups = generateSwissGroups(roster, roster);
+  const groups = generateSwissGroups(roster, roster, { seedOnly: Number(roundNumber) === 1 });
   const groupsWithImposters = assignImposters(groups, roster);
   return {
     roster,

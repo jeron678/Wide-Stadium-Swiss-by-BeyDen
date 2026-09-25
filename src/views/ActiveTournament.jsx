@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { updateEvent, startMatch } from '../eventService.js';
-import { calculateBuchholz, calculateTB, getRoundStatus, validateCompletedRound, calculateSingleEliminationRounds } from '../tournamentUtils.js';
+import { calculateBuchholz, calculateTB, getRoundStatus, validateCompletedRound, calculateSingleEliminationRounds, shuffle } from '../tournamentUtils.js';
 import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults, applyEliminationRound, generateEliminationMatches, getEliminationWinnerIds, getStandings, ELIMINATION_FORMAT, isImposter, PLAYER_STATUS } from '../tournamentEngine.js';
 import { buildScoreboardUrl } from '../refereeScoreboard.js';
 import { buildRefereeDashboardUrl } from '../refereeDashboard.js';
@@ -139,12 +139,10 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
 
     if (!window.confirm('Matches have not started yet. Updating the roster will regenerate Round 1 and reset tournament progress. Continue?')) return;
 
-    const updatedRealPlayers = createTournamentPlayers(newPlayerNames).map((newPlayer, index) => {
-      const oldPlayer = realPlayers[index];
-      return oldPlayer
-        ? { ...oldPlayer, name: newPlayer.name, score: 0, wins: 0, opponents: [], byeCount: 0, eliminated: false, isImposter: false }
-        : newPlayer;
-    });
+    // Before Round 1 starts there is no tournament history to preserve.
+    // Recreate the real-player roster in the exact order shown in the editor so
+    // reshuffling changes the actual Swiss seed order and therefore the matchups.
+    const updatedRealPlayers = createTournamentPlayers(newPlayerNames);
 
     const initial = event.format === ELIMINATION_FORMAT
       ? generateEliminationMatches(updatedRealPlayers, 1)
@@ -645,6 +643,26 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
             </div>
 
             <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginBottom: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const names = editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean);
+                    if (names.length < 2 || hasMatchesStarted()) return;
+                    setEditPlayerNames(shuffle(names).join('\n'));
+                  }}
+                  disabled={hasMatchesStarted()}
+                  title={hasMatchesStarted() ? 'Reshuffling is only available before the first match starts.' : 'Randomise the Round 1 seed order'}
+                  style={{
+                    ...secondaryBtn,
+                    padding: '8px 12px',
+                    opacity: hasMatchesStarted() ? 0.5 : 1,
+                    cursor: hasMatchesStarted() ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  🔀 Reshuffle Name List
+                </button>
+              </div>
               {hasMatchesStarted() ? (
                 // Show individual player cards when matches have started
                 <div style={{ display: 'grid', gap: '10px', maxHeight: '400px', overflowY: 'auto' }}>
@@ -708,13 +726,18 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                 </div>
               ) : (
                 // Show textarea when matches haven't started
-                <textarea
-                  placeholder="Player 1&#10;Player 2&#10;..."
-                  value={editPlayerNames}
-                  onChange={(e) => setEditPlayerNames(e.target.value)}
-                  rows={10}
-                  style={textArea}
-                />
+                <>
+                  <textarea
+                    placeholder="Player 1&#10;Player 2&#10;..."
+                    value={editPlayerNames}
+                    onChange={(e) => setEditPlayerNames(e.target.value)}
+                    rows={10}
+                    style={textArea}
+                  />
+                  <p style={{ margin: '8px 0 0', color: '#94a3b8', fontSize: '0.78rem' }}>
+                    Reshuffle changes the Round 1 seed order. Press Update Players to regenerate the matchups.
+                  </p>
+                </>
               )}
             </div>
 

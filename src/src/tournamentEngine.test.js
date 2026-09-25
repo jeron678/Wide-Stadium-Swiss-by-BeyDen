@@ -35,33 +35,6 @@ test('roster padding never creates more than two placeholders', () => {
   }
 });
 
-
-test('Round 1 Swiss matchups follow explicit seed order, not alphabetical order', () => {
-  const players = createTournamentPlayers(['Zed', 'Aaron', 'Mike', 'Bella', 'Chris', 'Daniel']);
-  const { matches } = generateSwissMatches(players, 1);
-  const groups = matches.map(match => match.members.filter(member => !isImposter(member)).map(member => member.name));
-  assert.deepEqual(groups, [
-    ['Zed', 'Aaron', 'Mike'],
-    ['Bella', 'Chris', 'Daniel'],
-  ]);
-});
-
-test('Reshuffled roster order becomes the new Round 1 seed order', () => {
-  const players = createTournamentPlayers(['Zed', 'Aaron', 'Mike', 'Bella', 'Chris', 'Daniel']);
-  const reshuffled = ['Chris', 'Zed', 'Daniel', 'Aaron', 'Bella', 'Mike'];
-  const reordered = reshuffled.map((name, index) => ({
-    ...players.find(player => player.name === name),
-    name,
-    seedOrder: index,
-  }));
-  const { matches } = generateSwissMatches(reordered, 1);
-  const groups = matches.map(match => match.members.filter(member => !isImposter(member)).map(member => member.name));
-  assert.deepEqual(groups, [
-    ['Chris', 'Zed', 'Daniel'],
-    ['Aaron', 'Bella', 'Mike'],
-  ]);
-});
-
 test('Swiss initial round distributes byes instead of putting all placeholders together', () => {
   const players = makePlayers(['A', 'B', 'C', 'D']);
   const { roster, matches } = generateSwissMatches(players, 1);
@@ -164,21 +137,4 @@ test('Legacy events migrate opponent names to stable IDs', () => {
  test('format constants remain stable', () => {
   assert.equal(SWISS_FORMAT, '1v1v1-swiss');
   assert.equal(ELIMINATION_FORMAT, '1v1v1-single-elimination');
-});
-
-test('player statuses exclude inactive players from future pairings', () => {
-  const players = createTournamentPlayers(['A', 'B', 'C', 'D']);
-  players[1].status = 'withdrawn';
-  const { matches } = generateSwissMatches(players, 2);
-  const ids = matches.flatMap(match => match.members).filter(member => !member.isImposter).map(member => member.id);
-  assert.equal(ids.includes(players[1].id), false);
-  assert.equal(ids.length, 3);
-});
-
-test('inactive players remain visible in standings but rank after active players', () => {
-  const players = createTournamentPlayers(['A', 'B', 'C']);
-  players[2].status = 'disqualified';
-  const standings = getStandings(players, SWISS_FORMAT);
-  assert.deepEqual(standings.map(player => player.name), ['A', 'B', 'C']);
-  assert.equal(standings.at(-1).status, 'disqualified');
 });
