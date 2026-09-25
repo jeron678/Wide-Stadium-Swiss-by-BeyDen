@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { updateEvent, startMatch } from '../eventService.js';
-import { calculateBuchholz, getRoundStatus, validateCompletedRound, calculateSingleEliminationRounds } from '../tournamentUtils.js';
-import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults, applyEliminationRound, generateEliminationMatches, getEliminationWinnerIds, getStandings, ELIMINATION_FORMAT, isImposter } from '../tournamentEngine.js';
+import { calculateBuchholz, calculateTB, getRoundStatus, validateCompletedRound, calculateSingleEliminationRounds, shuffle } from '../tournamentUtils.js';
+import { createTournamentPlayers, generateSwissMatches, recordSwissRoundResults, applyEliminationRound, generateEliminationMatches, getEliminationWinnerIds, getStandings, ELIMINATION_FORMAT, isImposter, PLAYER_STATUS } from '../tournamentEngine.js';
 import { buildScoreboardUrl } from '../refereeScoreboard.js';
 import { buildRefereeDashboardUrl } from '../refereeDashboard.js';
+import { buildPublicLiveUrl } from '../publicLiveUtils.js';
 import {
   activeLayout, stickyHeader, headerContent, headerTitle, utilBtn, roundScrollArea, currentRound, completedRound, roundHeader, roundBadge, statusTag, matchGrid, matchCard, matchLabel, matchRow, roundActionBtn, stickyButtonContainer, standingContainer, standingsTable, th, thLeft, thCenter, tr, tdRank, tdName, tdCenter, tdBH, pName, sectionTitle, miniInput, secondaryBtn, modalOverlay, modalDialog, modalHeader, modalCloseBtn, modalActions, modalActionBtn, textArea, playBtn, editBtn, scoreDisplay, matchLinkRow, matchLinkBtn, primaryBtn, tableWrapper
 } from '../styles/appStyles.js';
@@ -16,6 +17,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
   const [editPlayerNames, setEditPlayerNames] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [controlMessage, setControlMessage] = useState('');
+  const [showTournamentControls, setShowTournamentControls] = useState(false);
   useEffect(() => {
     if (currentRoundRef.current) {
       currentRoundRef.current.scrollIntoView({ 
@@ -53,6 +55,22 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
       setIsRefreshing(false);
       window.setTimeout(() => setControlMessage(''), 2500);
     }
+  };
+
+  const togglePublicLive = async () => {
+    const next = !Boolean(event.public_enabled);
+    const confirmed = window.confirm(next ? 'Enable the public live page? Anyone with the link will be able to view tournament standings and match progress.' : 'Disable the public live page? Existing shared links will stop working.');
+    if (!confirmed) return;
+    try {
+      await updateEvent(event.event_id, { public_enabled: next }, event.revision, { message: 'Another device changed public live access. Refresh and try again.' });
+      setControlMessage(next ? 'Public live page enabled.' : 'Public live page disabled.');
+      window.setTimeout(() => setControlMessage(''), 2500);
+    } catch (error) { alert(`Unable to change public live access: ${error?.message || 'Unknown error'}`); }
+  };
+
+  const copyPublicLiveLink = async () => {
+    const url = buildPublicLiveUrl(event.event_id);
+    try { await navigator.clipboard.writeText(url); alert('Public live link copied.'); } catch { window.prompt('Copy this public live link:', url); }
   };
 
   const togglePause = async () => {
@@ -121,12 +139,10 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
 
     if (!window.confirm('Matches have not started yet. Updating the roster will regenerate Round 1 and reset tournament progress. Continue?')) return;
 
-    const updatedRealPlayers = createTournamentPlayers(newPlayerNames).map((newPlayer, index) => {
-      const oldPlayer = realPlayers[index];
-      return oldPlayer
-        ? { ...oldPlayer, name: newPlayer.name, score: 0, wins: 0, opponents: [], byeCount: 0, eliminated: false, isImposter: false }
-        : newPlayer;
-    });
+    // Before Round 1 starts there is no tournament history to preserve.
+    // Recreate the real-player roster in the exact order shown in the editor so
+    // reshuffling changes the actual Swiss seed order and therefore the matchups.
+    const updatedRealPlayers = createTournamentPlayers(newPlayerNames);
 
     const initial = event.format === ELIMINATION_FORMAT
       ? generateEliminationMatches(updatedRealPlayers, 1)
@@ -149,6 +165,29 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
       return;
     }
     setShowEditPlayers(false);
+  };
+
+  const updatePlayerStatus = async (playerId, status) => {
+    if (event.status === 'finished') return;
+    const player = event.players.find(item => item.id === playerId);
+    if (!player || isImposter(player)) return;
+    const labels = {
+      [PLAYER_STATUS.ACTIVE]: 'Active',
+      [PLAYER_STATUS.WITHDRAWN]: 'Withdrawn',
+      [PLAYER_STATUS.NO_SHOW]: 'No-show',
+      [PLAYER_STATUS.DISQUALIFIED]: 'Disqualified',
+    };
+    if (status !== PLAYER_STATUS.ACTIVE && !window.confirm(`Mark ${player.name} as ${labels[status]}? This affects future pairings and does not alter the current match.`)) return;
+    const updatedPlayers = event.players.map(item => item.id === playerId ? { ...item, status } : item);
+    const updatedMatches = event.matches.map(round => round.map(match => ({
+      ...match,
+      members: (match.members || []).map(member => member.id === playerId ? { ...member, status } : member),
+    })));
+    try {
+      await updateEvent(event.event_id, { players: updatedPlayers, matches: updatedMatches }, event.revision, { message: 'Another referee changed player status. Refresh before trying again.' });
+    } catch (error) {
+      alert(`Unable to update player status: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   const renameEvent = async () => {
@@ -242,7 +281,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
         return;
       }
 
-      const activePlayers = result.players.filter(player => !player.eliminated && !isImposter(player));
+      const activePlayers = result.players.filter(player => !player.eliminated && !isImposter(player) && (player.status || PLAYER_STATUS.ACTIVE) === PLAYER_STATUS.ACTIVE);
       if (activePlayers.length <= 1) {
         try {
           await updateEvent(event.event_id, {
@@ -305,48 +344,93 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
 
   return (
     <div style={activeLayout}>
-      <div style={stickyHeader}>
-        <div style={headerContent}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2 style={headerTitle}>{event.name}</h2>
-              <button className="rename-btn" onClick={renameEvent} style={{ ...utilBtn, padding: '8px 12px', fontSize: '0.85rem' }}>
-                ✏️ Rename
+      {!showTournamentControls && (
+        <button
+          type="button"
+          onClick={() => setShowTournamentControls(true)}
+          style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', right: '12px', zIndex: 110, background: 'var(--surface)', color: 'var(--text-h)', border: '1px solid var(--border)', borderRadius: '10px', padding: '9px 12px', fontWeight: 800, cursor: 'pointer', boxShadow: 'var(--shadow-soft)' }}
+          aria-label="Show tournament controls"
+        >
+          ☰ Controls
+        </button>
+      )}
+
+      {showTournamentControls && (
+        <>
+          <button
+            type="button"
+            className="tournament-controls-backdrop"
+            onClick={() => setShowTournamentControls(false)}
+            aria-label="Close tournament controls"
+          />
+          <aside
+            className="tournament-controls-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Tournament controls"
+          >
+            <div className="tournament-controls-panel-header">
+              <div>
+                <div className="tournament-controls-panel-kicker">BEYDEN • TOURNAMENT</div>
+                <h2>{event.name}</h2>
+                <div className="tournament-controls-round">
+                  <span>ROUND {event.current_round} / {event.max_rounds}</span>
+                  <span className={`tournament-controls-status ${event.status}`}>{event.status === 'paused' ? 'Paused' : event.status === 'finished' ? 'Finished' : 'Live'}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="tournament-controls-close"
+                onClick={() => setShowTournamentControls(false)}
+                aria-label="Close tournament controls"
+              >
+                ✕
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                {event.format === '1v1v1-single-elimination' ? 'ROUNDS:' : 'ROUNDS:'}
-              </span>
-              {event.format === '1v1v1-single-elimination' ? (
-                <span style={{ fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>
-                  {event.max_rounds} Rounds
-                </span>
-              ) : (
-                <input
-                  type="number"
-                  min={event.current_round}
-                  value={event.max_rounds}
-                  onChange={(e) => updateMaxRounds(e.target.value)}
-                  disabled={isFinalized}
-                  style={{ ...miniInput, opacity: isFinalized ? 0.5 : 1, cursor: isFinalized ? 'not-allowed' : 'text' }}
-                />
-              )}
+
+            <div className="tournament-controls-panel-body">
+              <div className="tournament-controls-event-row">
+                <button className="rename-btn" onClick={renameEvent} style={{ ...utilBtn, padding: '8px 12px', fontSize: '0.85rem' }}>
+                  ✏️ Rename
+                </button>
+                <label className="tournament-controls-round-input">
+                  <span>Rounds</span>
+                  {event.format === '1v1v1-single-elimination' ? (
+                    <strong>{event.max_rounds}</strong>
+                  ) : (
+                    <input
+                      type="number"
+                      min={event.current_round}
+                      value={event.max_rounds}
+                      onChange={(e) => updateMaxRounds(e.target.value)}
+                      disabled={isFinalized}
+                      style={{ ...miniInput, opacity: isFinalized ? 0.5 : 1, cursor: isFinalized ? 'not-allowed' : 'text' }}
+                    />
+                  )}
+                </label>
+              </div>
+
+              <div className="tournament-controls-grid">
+                <button onClick={togglePause} disabled={isFinalized} style={{...secondaryBtn, opacity: isFinalized ? 0.5 : 1}}>{event.status === 'paused' ? '▶️ Resume' : '⏸ Pause'}</button>
+                <button onClick={refreshTournament} disabled={isRefreshing} style={{...secondaryBtn}}>{isRefreshing ? '↻ Refreshing…' : '↻ Refresh'}</button>
+                <button onClick={() => window.open(buildRefereeDashboardUrl(event.event_id), '_blank', 'noopener,noreferrer')} style={{...secondaryBtn}}>🎛 Referee Dashboard</button>
+                <button onClick={togglePublicLive} style={{...secondaryBtn}}>{event.public_enabled ? '🌐 Disable Public Live' : '🌐 Enable Public Live'}</button>
+                {event.public_enabled && <button onClick={copyPublicLiveLink} style={{...secondaryBtn}}>🔗 Copy Live Link</button>}
+                <button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button>
+                <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
+                <button onClick={onBack} style={utilBtn}>Main Menu</button>
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button onClick={togglePause} disabled={isFinalized} style={{...secondaryBtn, opacity: isFinalized ? 0.5 : 1}}>{event.status === 'paused' ? '▶️ Resume' : '⏸ Pause'}</button>
-            <button onClick={refreshTournament} disabled={isRefreshing} style={{...secondaryBtn}}>{isRefreshing ? '↻ Refreshing…' : '↻ Refresh'}</button>
-            <button onClick={() => window.open(buildRefereeDashboardUrl(event.event_id), '_blank', 'noopener,noreferrer')} style={{...secondaryBtn}}>🎛 Referee Dashboard</button>
-            <button onClick={() => setView('BACKUP')} style={{...secondaryBtn}}>💾 Backup / Restore</button>
-            <button onClick={() => setShowEditPlayers(true)} style={utilBtn}>👥 Edit Players</button>
-            <button onClick={onBack} style={utilBtn}>Main Menu</button>
-          </div>
-        </div>
-      </div>
+
+            <div className="tournament-controls-panel-footer">
+              <button type="button" onClick={() => setShowTournamentControls(false)} className="tournament-controls-hide">✕ Close Controls</button>
+            </div>
+          </aside>
+        </>
+      )}
 
       {(event.status === 'paused' || controlMessage) && (
-        <div style={{ position: 'sticky', top: '60px', zIndex: 90, maxWidth: '1000px', margin: '0 auto', padding: '8px 15px', background: event.status === 'paused' ? '#78350f' : '#1e293b', border: '1px solid #475569', borderRadius: '0 0 10px 10px', color: '#f8fafc', fontSize: '0.8rem', textAlign: 'center' }}>
+        <div style={{ position: 'relative', zIndex: 90, maxWidth: '1000px', margin: '0 auto', padding: '8px 15px', background: event.status === 'paused' ? '#78350f' : '#1e293b', border: '1px solid #475569', borderRadius: '0 0 10px 10px', color: '#f8fafc', fontSize: '0.8rem', textAlign: 'center' }}>
           {event.status === 'paused' ? '⏸ Tournament paused — existing results are preserved.' : controlMessage}
         </div>
       )}
@@ -406,10 +490,31 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                     {isTie && <div style={{ color: '#fbbf24', fontSize: '0.75rem', fontWeight: 700, marginTop: '8px' }}>⚠️ TIE — select a clear winner before advancing.</div>}
                     {isTie && !isFinalized && <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>{m.members.filter(member => winnerIds.includes(member.id)).map(member => <button key={member.id} onClick={() => resolveEliminationTie(rIdx, mIdx, member.id)} style={{ ...playBtn, background: '#b45309' }}>🏆 {member.name}</button>)}</div>}
                     {!isCompleted && !isFinalized && event.status !== 'paused' && (
-                      <button 
+                      <button
                         onClick={async () => {
-                          if (m.status === 'completed' || event.status === 'finished') return;
+                          if (event.status === 'finished') return;
                           try {
+                            if (m.status === 'completed') {
+                              const currentRoundIndex = Math.max(0, Number(event.current_round || 1) - 1);
+                              if (rIdx !== currentRoundIndex) {
+                                alert('Only matches from the current round can be edited.');
+                                return;
+                              }
+                              setRefereeData({
+                                roundIdx: rIdx,
+                                matchIdx: mIdx,
+                                matchId: m.id,
+                                revision: event.revision,
+                                status: m.status,
+                                members: m.members,
+                                eventName: event.name,
+                                roundNumber: rIdx + 1,
+                                stadiumNumber: mIdx + 1,
+                              });
+                              setView('SCOREBOARD');
+                              return;
+                            }
+
                             const updatedEvent = await startMatch(event, rIdx, mIdx);
                             const updatedMatch = updatedEvent.matches?.[rIdx]?.[mIdx];
                             if (!updatedMatch) throw new Error('The selected match is no longer available.');
@@ -418,7 +523,11 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                               matchIdx: mIdx,
                               matchId: updatedMatch.id,
                               revision: updatedEvent.revision,
+                              status: updatedMatch.status,
                               members: updatedMatch.members,
+                              eventName: event.name,
+                              roundNumber: rIdx + 1,
+                              stadiumNumber: mIdx + 1,
                             });
                             setView('SCOREBOARD');
                           } catch (error) {
@@ -487,6 +596,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                   <th style={thLeft}>Player</th>
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>Score</th>}
                   <th style={thCenter}>{event.format === '1v1v1-single-elimination' ? 'Wins' : 'Wins'}</th>
+                  {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>TB</th>}
                   {event.format !== '1v1v1-single-elimination' && <th style={thCenter}>BH</th>}
                 </tr>
               </thead>
@@ -501,9 +611,11 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                       <td style={tdRank}>#{i + 1}</td>
                       <td style={tdName}>
                         {isEliminated ? '❌ ' : ''}{p.name}
+                        {p.status && p.status !== PLAYER_STATUS.ACTIVE && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#fbbf24', fontWeight: 800 }}>{p.status === PLAYER_STATUS.NO_SHOW ? 'NO-SHOW' : p.status.toUpperCase()}</span>}
                       </td>
                       {event.format !== '1v1v1-single-elimination' && <td style={tdCenter}>{p.score}</td>}
                       <td style={tdCenter}>{p.wins || 0}</td>
+                      {event.format !== '1v1v1-single-elimination' && <td style={tdCenter}>{calculateTB(p, event.players)}</td>}
                       {event.format !== '1v1v1-single-elimination' && <td style={tdBH}>{calculateBuchholz(p, event.players)}</td>}
                     </tr>
                   );
@@ -522,7 +634,7 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                 <h3 style={{ margin: 0 }}>Edit Players</h3>
                 <p style={{ margin: '6px 0 0', color: '#cbd5e1', fontSize: '0.85rem' }}>
                   {hasMatchesStarted() 
-                    ? "Edit individual player names. Cannot change player count once matches have started." 
+                    ? "Edit player names and status. Inactive players are excluded from future pairings; current matches are preserved." 
                     : "Update the player roster. One name per line. Changing player count will reset matches."
                   }
                 </p>
@@ -531,6 +643,26 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
             </div>
 
             <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginBottom: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const names = editPlayerNames.split('\n').map(name => name.trim()).filter(Boolean);
+                    if (names.length < 2 || hasMatchesStarted()) return;
+                    setEditPlayerNames(shuffle(names).join('\n'));
+                  }}
+                  disabled={hasMatchesStarted()}
+                  title={hasMatchesStarted() ? 'Reshuffling is only available before the first match starts.' : 'Randomise the Round 1 seed order'}
+                  style={{
+                    ...secondaryBtn,
+                    padding: '8px 12px',
+                    opacity: hasMatchesStarted() ? 0.5 : 1,
+                    cursor: hasMatchesStarted() ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  🔀 Reshuffle Name List
+                </button>
+              </div>
               {hasMatchesStarted() ? (
                 // Show individual player cards when matches have started
                 <div style={{ display: 'grid', gap: '10px', maxHeight: '400px', overflowY: 'auto' }}>
@@ -544,9 +676,29 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                       borderRadius: '8px',
                       border: '1px solid #334155'
                     }}>
-                      <span style={{ fontSize: '0.9rem', color: '#f8fafc' }}>
-                        {index + 1}. {player.name}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <span style={{ fontSize: '0.9rem', color: '#f8fafc' }}>
+                          {index + 1}. {player.name}
+                        </span>
+                        {(player.status && player.status !== PLAYER_STATUS.ACTIVE) && (
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#fbbf24' }}>
+                            {player.status === PLAYER_STATUS.NO_SHOW ? 'NO-SHOW' : player.status.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <select
+                          value={player.status || PLAYER_STATUS.ACTIVE}
+                          onChange={(e) => updatePlayerStatus(player.id, e.target.value)}
+                          style={{ background: '#0f172a', color: '#f8fafc', border: '1px solid #475569', borderRadius: '6px', padding: '6px', fontSize: '0.75rem' }}
+                          disabled={isFinalized}
+                          aria-label={`Status for ${player.name}`}
+                        >
+                          <option value={PLAYER_STATUS.ACTIVE}>Active</option>
+                          <option value={PLAYER_STATUS.WITHDRAWN}>Withdrawn</option>
+                          <option value={PLAYER_STATUS.NO_SHOW}>No-show</option>
+                          <option value={PLAYER_STATUS.DISQUALIFIED}>Disqualified</option>
+                        </select>
                       <button 
                         onClick={() => {
                           const newName = prompt('Enter new name:', player.name);
@@ -568,18 +720,24 @@ export function ActiveTournament({ event, onBack, setRefereeData, setView, authS
                       >
                         ✏️ Edit
                       </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 // Show textarea when matches haven't started
-                <textarea
-                  placeholder="Player 1&#10;Player 2&#10;..."
-                  value={editPlayerNames}
-                  onChange={(e) => setEditPlayerNames(e.target.value)}
-                  rows={10}
-                  style={textArea}
-                />
+                <>
+                  <textarea
+                    placeholder="Player 1&#10;Player 2&#10;..."
+                    value={editPlayerNames}
+                    onChange={(e) => setEditPlayerNames(e.target.value)}
+                    rows={10}
+                    style={textArea}
+                  />
+                  <p style={{ margin: '8px 0 0', color: '#94a3b8', fontSize: '0.78rem' }}>
+                    Reshuffle changes the Round 1 seed order. Press Update Players to regenerate the matchups.
+                  </p>
+                </>
               )}
             </div>
 
