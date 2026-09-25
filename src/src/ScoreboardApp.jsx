@@ -72,12 +72,18 @@ export default function ScoreboardApp() {
     return <div className="scoreboard-loading"><strong>Match not found.</strong><button onClick={handleExit} className="scoreboard-loading-button">← Return</button></div>;
   }
 
+  // A completed match remains editable while it belongs to the active round.
+  // Once the round is confirmed, previous-round results are locked so that
+  // already-applied standings do not become inconsistent.
+  const isHistoricalMatch = refereeData.roundIdx + 1 < Number(event.current_round || 1);
+  const matchLocked = event.status === 'finished' || (refereeData.status === 'completed' && isHistoricalMatch);
+
   return (
     <ScoreboardView
       setView={handleExit}
       activeMatch={refereeData}
       event_id={event.event_id}
-      matchLocked={refereeData.status === 'completed'}
+      matchLocked={matchLocked}
       scoreboardMeta={refereeData}
     />
   );

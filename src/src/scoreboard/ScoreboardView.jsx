@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { submitMatchResult, EventConflictError } from '../eventService.js';
+import { submitMatchResult, editMatchResult, EventConflictError } from '../eventService.js';
 import '../scoreboard.css';
 
 
@@ -94,10 +94,15 @@ export function ScoreboardView({ setView, activeMatch, event_id, matchLocked = f
       return;
     }
 
-    if (!window.confirm('Submit this match result and lock the scoreboard?')) return;
+    const isEditing = activeMatch.status === 'completed';
+    if (!window.confirm(isEditing ? 'Save the corrected match result?' : 'Submit this match result?')) return;
     setIsSubmitting(true);
     try {
-      await submitMatchResult(event_id, activeMatch.revision, activeMatch.roundIdx, activeMatch.matchIdx, scores);
+      if (isEditing) {
+        await editMatchResult(event_id, activeMatch.revision, activeMatch.roundIdx, activeMatch.matchIdx, scores);
+      } else {
+        await submitMatchResult(event_id, activeMatch.revision, activeMatch.roundIdx, activeMatch.matchIdx, scores);
+      }
       setView('ACTIVE');
     } catch (error) {
       if (error instanceof EventConflictError) {
@@ -124,7 +129,7 @@ export function ScoreboardView({ setView, activeMatch, event_id, matchLocked = f
           )}
           {isTournamentMode && (
             <button onClick={handleSubmit} style={{ ...sbSubmitBtn, opacity: isSubmitting ? 0.65 : 1 }} disabled={isSubmitting || isLocked}>
-              {isLocked ? '🔒 Match Locked' : isSubmitting ? 'Saving...' : '💾 Submit & Lock'}
+              {isLocked ? '🔒 Match Locked' : isSubmitting ? 'Saving...' : activeMatch.status === 'completed' ? '💾 Save Correction' : '💾 Submit Result'}
             </button>
           )}
           <button onClick={() => setIsColorblind(current => !current)} style={sbSmallBtn} aria-pressed={isColorblind}>👁 CB</button>

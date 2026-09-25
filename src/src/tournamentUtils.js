@@ -41,17 +41,36 @@ export const calculateBuchholz = (player, allPlayers) => {
   }, 0);
 };
 
-export const compareSwissPlayers = (a, b, allPlayers) => {
-  const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
-  if (scoreDiff !== 0) return scoreDiff;
+export const calculateTB = (player, allPlayers) => {
+  const playerWins = Number(player?.wins || 0);
+  const winsAgainst = Array.isArray(player?.winsAgainst) ? player.winsAgainst : [];
+  return winsAgainst.reduce((total, opponentRef) => {
+    const opponent = getPlayerByIdOrName(allPlayers, opponentRef);
+    return total + (opponent && Number(opponent.wins || 0) === playerWins ? 1 : 0);
+  }, 0);
+};
 
+export const compareSwissPlayers = (a, b, allPlayers) => {
+  // Official Swiss standings priority: Wins -> TB -> Points -> Buchholz.
   const winsDiff = Number(b.wins || 0) - Number(a.wins || 0);
   if (winsDiff !== 0) return winsDiff;
+
+  const tbDiff = calculateTB(b, allPlayers) - calculateTB(a, allPlayers);
+  if (tbDiff !== 0) return tbDiff;
+
+  const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+  if (scoreDiff !== 0) return scoreDiff;
 
   const buchholzDiff = calculateBuchholz(b, allPlayers) - calculateBuchholz(a, allPlayers);
   if (buchholzDiff !== 0) return buchholzDiff;
 
-  return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+  // When all official Swiss criteria are tied, preserve the tournament's
+  // explicit seed order instead of falling back to alphabetical names.
+  const aSeed = Number.isFinite(Number(a?.seedOrder)) ? Number(a.seedOrder) : Number.POSITIVE_INFINITY;
+  const bSeed = Number.isFinite(Number(b?.seedOrder)) ? Number(b.seedOrder) : Number.POSITIVE_INFINITY;
+  if (aSeed !== bSeed) return aSeed - bSeed;
+
+  return String(a.id || '').localeCompare(String(b.id || ''));
 };
 
 export const compareEliminationPlayers = (a, b) => {

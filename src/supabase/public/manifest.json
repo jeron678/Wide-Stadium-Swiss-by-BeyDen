@@ -1,0 +1,21 @@
+{
+  "short_name": "Scoreboard",
+  "name": "BeyDen Live Scoreboard",
+  "icons": [
+    {
+      "src": "/beyden.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/beyden.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/scoreboard.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
